@@ -19,4 +19,10 @@ python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip >/dev/null
 "$VENV_DIR/bin/pip" install --quiet -r "$MCP_DIR/requirements.txt"
 
+# The vendored MetasploitMCP targets the MCP SDK v1 API
+# (`from mcp.server.fastmcp import FastMCP`). mcp 2.x renamed FastMCP to
+# MCPServer and breaks the import, which makes OpenCode report
+# "metasploit MCP error -32000: Connection closed". Pin <2 so the server starts.
+"$VENV_DIR/bin/pip" install --quiet "mcp<2"
+
 echo "$MCP_DIR"

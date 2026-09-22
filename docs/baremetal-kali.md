@@ -113,6 +113,7 @@ Docker runtime.
 | Katana can't find Chrome | Set `KATANA_CHROME_BIN` in `.env` (e.g. `/usr/bin/chromium`). |
 | `browser_flow.py` fails | Install `chromium` + `chromium-driver`; optionally set `CHROMEDRIVER_BIN`. |
 | Metasploit MCP unavailable | Ensure `msfrpcd` is installed and port 55553 is free; re-run `scripts/install_metasploit_mcp.sh .`. |
+| OpenCode shows `metasploit MCP error -32000: Connection closed` | The MCP venv has mcp 2.x but the vendored server needs the v1 API. Fix: `~/redteam-agent/.opencode/vendor/metasploitmcp-venv/bin/pip install "mcp<2"`, then restart OpenCode. New installs pin this automatically. |
 | Wrong mode | Check `REDTEAM_RUNTIME_MODE` in `.env`; explicit env vars win over `.env`. |
 
 ## Security note
