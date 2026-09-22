@@ -1,0 +1,43 @@
+@import "./styles/tokens.css";
+@import "./styles/shell.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  margin: 0;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(255, 99, 71, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(68, 145, 255, 0.14), transparent 32%),
+    linear-gradient(180deg, var(--c-bg) 0%, #0c1824 42%, var(--c-bg) 100%);
+  color: var(--c-text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--c-accent-strong);
+}
