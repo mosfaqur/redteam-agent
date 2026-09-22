@@ -304,14 +304,54 @@ def load_profiles() -> list[dict]:
     return profiles
 
 
-def profile_matches(prof: dict, host: str, port: int, base_url: str) -> bool:
+def detected_service_ports(eng_dir: Path) -> set[int]:
+    """Distinct service ports already ingested in cases.db (for network matching)."""
+    db = eng_dir / "cases.db"
+    if not db.exists():
+        return set()
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(db))
+        try:
+            rows = conn.execute("SELECT DISTINCT port FROM cases WHERE port IS NOT NULL").fetchall()
+        finally:
+            conn.close()
+        return {int(r[0]) for r in rows if r[0] is not None}
+    except Exception:
+        return set()
+
+
+def _as_int_set(values) -> set[int]:
+    out: set[int] = set()
+    for v in values or []:
+        try:
+            out.add(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def profile_matches(prof: dict, host: str, port: int, base_url: str, detected_ports: set[int] | None = None) -> bool:
     match = prof.get("match") or {}
     if match.get("always"):
         return False  # generic catch-all handled separately
 
+    detected_ports = detected_ports or set()
+    ports = _as_int_set(match.get("ports"))
+    min_overlap = 0
+    try:
+        min_overlap = int(match.get("min_port_overlap", 0) or 0)
+    except (TypeError, ValueError):
+        min_overlap = 0
+
+    # Network profiles can match on a distinctive port signature alone (host is
+    # usually a bare IP that carries no fingerprint).
+    if min_overlap > 0 and ports:
+        if len(ports & detected_ports) >= min_overlap:
+            return True
+
     host_hit = host_matches(host, match.get("hosts") or [])
-    ports = match.get("ports") or []
-    port_hit = (not ports) or (port in ports)
+    port_hit = (not ports) or (port in ports) or bool(ports & detected_ports)
 
     if host_hit and port_hit:
         return True
@@ -350,10 +390,11 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
             return 1
 
     if chosen is None:
+        detected = detected_service_ports(eng_dir)
         specific = [p for p in profiles if not (p.get("match") or {}).get("always")]
         specific.sort(key=lambda p: int(p.get("priority", 0)), reverse=True)
         for prof in specific:
-            if profile_matches(prof, host, port, base_url):
+            if profile_matches(prof, host, port, base_url, detected):
                 chosen = prof
                 break
 
@@ -365,6 +406,14 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
     if chosen is None:
         print("LAB_PROFILE=none LAB_KIND=unknown")
         return 0
+
+    # Don't downgrade an already-resolved specific profile to the generic
+    # catch-all (e.g. a bare-IP network target re-detected before ports land).
+    if not profile_override and chosen.get("id") == "generic":
+        existing = load_profile(eng_dir)
+        if existing.get("id") and existing.get("id") != "generic":
+            print(f"LAB_PROFILE={existing.get('id')} LAB_KIND={existing.get('kind')} TARGET={target} NOTE=kept existing profile")
+            return 0
 
     resolved = dict(chosen)
     resolved["resolved_from"] = chosen.get("_path", "")
@@ -378,49 +427,62 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
 # --------------------------------------------------------------------------- #
 # objective resolution
 # --------------------------------------------------------------------------- #
-def resolve_source(profile: dict, base_url: str, state: dict) -> tuple[str, str, str, str]:
-    """Return (url, parser, body, error). Resolves discover-candidates and caches."""
+def _candidate_sources(profile: dict, state: dict) -> list[dict]:
+    """Ordered list of candidate objective sources for this profile."""
     obj = profile.get("objective") or {}
     otype = obj.get("type", "none")
-
-    if otype == "declared":
-        return "", "none", "", ""
-
-    cached = state.get("source") or {}
     candidates: list[dict] = []
     if otype == "discover":
-        candidates = obj.get("candidates") or []
+        candidates = list(obj.get("candidates") or [])
+        cached = state.get("source") or {}
         if cached.get("url") and cached.get("parser"):
             candidates = [cached] + [c for c in candidates if c.get("url") != cached.get("url")]
     else:
         src = obj.get("source") or {}
         if src.get("url"):
             candidates = [src]
-        candidates += obj.get("candidates") or []
-
-    last_err = "no objective source"
-    for cand in candidates:
-        if not isinstance(cand, dict) or not cand.get("url"):
-            continue
-        url = join_url(base_url, str(cand["url"]))
-        parser = str(cand.get("parser", "generic-json"))
-        ok, body, err = http_get(url)
-        if ok and body:
-            state["source"] = {"url": cand["url"], "parser": parser}
-            return str(cand["url"]), parser, body, ""
-        last_err = err or "empty response"
-    return "", "", "", last_err
+        candidates += list(obj.get("candidates") or [])
+    return [c for c in candidates if isinstance(c, dict) and c.get("url")]
 
 
-def collect_objectives(profile: dict, eng_dir: Path, base_url: str) -> tuple[list[dict], str]:
-    """Return (objectives, note). objectives = [{"id","solved","state"}]."""
+def _build_objectives(parsed: list[dict], checklist: list[str], captured: set[str]) -> list[dict]:
+    solved_map = {str(o["id"]): o.get("solved") for o in parsed}
+    objectives: list[dict] = []
+    if checklist:
+        for name in checklist:
+            if name in solved_map:
+                s = solved_map[name]
+                objectives.append({"id": name, "solved": bool(s), "state": "solved" if s else "unsolved"})
+            else:
+                # not present in the remote snapshot -> treat as unsolved
+                objectives.append({"id": name, "solved": False, "state": "unsolved"})
+        return objectives
+    for o in parsed:
+        name = str(o["id"])
+        if o.get("solved") is None:
+            # flag-style: solved if captured locally
+            solved = name in captured
+            objectives.append({"id": name, "solved": solved, "state": "solved" if solved else "unsolved"})
+        else:
+            objectives.append({"id": name, "solved": bool(o["solved"]), "state": "solved" if o["solved"] else "unsolved"})
+    return objectives
+
+
+def collect_objectives(profile: dict, eng_dir: Path, base_url: str) -> tuple[list[dict], str, bool]:
+    """Return (objectives, note, unavailable).
+
+    ``unavailable`` is True only when the profile declares an explicit objective
+    source (remote/flag) that could not be read or parsed — the guard then
+    fails closed instead of silently passing. A ``discover`` profile that finds
+    no objective source is a plain pentest and is not gated (unavailable=False).
+    """
     obj = profile.get("objective") or {}
     otype = obj.get("type", "none")
     state = load_state(eng_dir)
     captured = set(state.get("captured") or [])
 
     if otype == "none":
-        return [], "objective type none"
+        return [], "objective type none", False
 
     if otype == "declared":
         checklist = obj.get("checklist") or []
@@ -432,42 +494,30 @@ def collect_objectives(profile: dict, eng_dir: Path, base_url: str) -> tuple[lis
         return [
             {"id": name, "solved": name in captured, "state": "solved" if name in captured else "unsolved"}
             for name in checklist
-        ], "declared checklist"
-
-    src_url, parser, body, err = resolve_source(profile, base_url, state)
-    if parser and parser != "none" and body:
-        save_state(eng_dir, state)  # persist discovered source
-
-    if not body:
-        return [], err or "objective source unavailable"
-
-    parsed = parse_body(parser, body)
-    if not parsed:
-        return [], f"objective source returned no parseable objectives ({src_url or parser})"
+        ], "declared checklist", False
 
     checklist = obj.get("checklist") or []
-    solved_map = {str(o["id"]): o.get("solved") for o in parsed}
+    last_err = "no objective source"
+    for cand in _candidate_sources(profile, state):
+        url = join_url(base_url, str(cand["url"]))
+        parser = str(cand.get("parser", "generic-json"))
+        ok, body, err = http_get(url)
+        if not (ok and body):
+            last_err = f"{cand['url']}: {err or 'empty response'}"
+            continue
+        parsed = parse_body(parser, body)
+        if not parsed:
+            last_err = f"{cand['url']}: returned no parseable objectives (parser={parser})"
+            continue
+        state["source"] = {"url": cand["url"], "parser": parser}
+        save_state(eng_dir, state)
+        return _build_objectives(parsed, checklist, captured), f"source={cand['url']}", False
 
-    objectives: list[dict] = []
-    if checklist:
-        for name in checklist:
-            if name in solved_map:
-                s = solved_map[name]
-                state_str = "solved" if s else "unsolved"
-                objectives.append({"id": name, "solved": bool(s), "state": state_str})
-            else:
-                # not present in remote snapshot -> treat as unsolved
-                objectives.append({"id": name, "solved": False, "state": "unsolved"})
-    else:
-        for o in parsed:
-            name = str(o["id"])
-            if o.get("solved") is None:
-                # flag-style: solved if captured locally
-                solved = name in captured
-                objectives.append({"id": name, "solved": solved, "state": "solved" if solved else "unsolved"})
-            else:
-                objectives.append({"id": name, "solved": bool(o["solved"]), "state": "solved" if o["solved"] else "unsolved"})
-    return objectives, f"source={src_url or parser}"
+    if otype == "discover":
+        # No machine-readable objectives found -> plain pentest, not gated.
+        return [], last_err, False
+    # remote/flag with an explicit source that failed -> fail closed.
+    return [], last_err, True
 
 
 def print_snapshot(profile: dict, objectives: list[dict], note: str, as_json: bool) -> None:
@@ -517,7 +567,7 @@ def cmd_snapshot(eng_dir: Path, as_json: bool) -> int:
     scope = read_scope(eng_dir)
     target = str(scope.get("target") or profile.get("target") or "")
     base_url = target if "://" in target else ("https://" + target if target else "")
-    objectives, note = collect_objectives(profile, eng_dir, base_url)
+    objectives, note = collect_objectives(profile, eng_dir, base_url)[:2]
     print_snapshot(profile, objectives, note, as_json)
     return 0
 
@@ -547,8 +597,11 @@ def cmd_guard(eng_dir: Path) -> int:
     scope = read_scope(eng_dir)
     target = str(scope.get("target") or profile.get("target") or "")
     base_url = target if "://" in target else ("https://" + target if target else "")
-    objectives, note = collect_objectives(profile, eng_dir, base_url)
+    objectives, note, unavailable = collect_objectives(profile, eng_dir, base_url)
     if not objectives:
+        if unavailable:
+            print(f"BLOCK objective source unavailable ({note})")
+            return 1
         # No machine-readable objectives: not a recall-gated lab.
         print(f"PASS no objectives ({note})")
         return 0

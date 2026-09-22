@@ -201,6 +201,18 @@ db_insert_case() {
 SELECT changes();"
 }
 
+# _db_ensure_service_columns <db_path>
+# Idempotently add the network-service columns so service ingestion works even
+# on a cases.db created before those columns existed.
+_db_ensure_service_columns() {
+    local db_path="$1" col
+    for col in \
+        "host TEXT" "port INTEGER" "proto TEXT" "service TEXT" \
+        "service_product TEXT" "service_version TEXT" "banner TEXT" "scan_ref TEXT"; do
+        _db_sqlite_with_retry text "$db_path" "ALTER TABLE cases ADD COLUMN ${col};" >/dev/null 2>&1 || true
+    done
+}
+
 # db_insert_service_case <db_path> <host> <port> <proto> <service>
 #   <product> <version> <banner> <source> <scan_ref>
 # Insert a TCP/UDP service case (type='service') with INSERT OR IGNORE dedup.
@@ -223,12 +235,19 @@ db_insert_service_case() {
         return 1
     fi
 
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        echo "db_insert_service_case: port must be numeric (got '$port')" >&2
+        return 1
+    fi
+
     [[ "$proto" =~ ^(tcp|udp)$ ]] || proto="tcp"
     [[ "$service" == "null" ]] && service=""
     [[ "$product" == "null" ]] && product=""
     [[ "$version" == "null" ]] && version=""
     [[ "$banner" == "null" ]] && banner=""
     [[ "$scan_ref" == "null" ]] && scan_ref=""
+
+    _db_ensure_service_columns "$db_path"
 
     local method="SERVICE"
     local url="${proto}://${host}:${port}"

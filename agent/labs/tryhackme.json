@@ -1,0 +1,39 @@
+{
+  "id": "tryhackme",
+  "display_name": "TryHackMe room",
+  "kind": "network",
+  "priority": 55,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "Task 1 flag",
+      "Task 2 flag",
+      "Privilege escalation flag"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "Task 1 flag",
+      "vuln_class": "recon",
+      "route": "",
+      "trigger": "follow the room's first task; capture the flag string and record evidence"
+    },
+    {
+      "objective": "Privilege escalation flag",
+      "vuln_class": "privilege-escalation",
+      "route": "",
+      "trigger": "enumerate the foothold host, escalate privileges, and capture the root/system flag"
+    }
+  ]
+}

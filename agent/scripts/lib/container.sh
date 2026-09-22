@@ -39,8 +39,9 @@ _load_env_defaults() {
     done < "$file"
 }
 
-if _redteam_env_file >/dev/null 2>&1; then
-    _load_env_defaults "$(_redteam_env_file)"
+_redteam_env_path="$(_redteam_env_file 2>/dev/null || true)"
+if [ -n "$_redteam_env_path" ]; then
+    _load_env_defaults "$_redteam_env_path"
 fi
 
 # Resolve a tool path: prefer a configured binary that actually exists, then

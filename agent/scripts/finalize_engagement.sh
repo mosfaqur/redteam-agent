@@ -172,8 +172,8 @@ recall_finalize_guard() {
     [[ -f "$guard" ]] || return 0
     command -v python3 >/dev/null 2>&1 || return 0
 
-    output="$(python3 "$guard" guard "$ENG_DIR" 2>&1)"
-    status=$?
+    status=0
+    output="$(python3 "$guard" guard "$ENG_DIR" 2>&1)" || status=$?
     [[ $status -eq 0 ]] && return 0
 
     reason="${output#BLOCK }"

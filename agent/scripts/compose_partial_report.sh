@@ -41,7 +41,8 @@ phases_done=$(jq -r '(.phases_completed // []) | join(", ")' "$SCOPE" 2>/dev/nul
 start_time=$(jq -r '.start_time // .started_at // ""' "$SCOPE" 2>/dev/null || echo "")
 finding_count=0
 if [[ -f "$FINDINGS" ]]; then
-    finding_count=$(/usr/bin/grep -c "^## \[FINDING-" "$FINDINGS" 2>/dev/null || echo 0)
+    finding_count=$(/usr/bin/grep -c "^## \[FINDING-" "$FINDINGS" 2>/dev/null || true)
+    finding_count=${finding_count:-0}
 fi
 
 # Stage tally (only if cases.db has the stage column)

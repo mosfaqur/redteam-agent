@@ -1,0 +1,38 @@
+{
+  "id": "vulnhub",
+  "display_name": "VulnHub VM",
+  "kind": "network",
+  "priority": 55,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "user shell",
+      "root shell"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "user shell",
+      "vuln_class": "initial-access",
+      "route": "",
+      "trigger": "enumerate all services; exploit the weakest exposed service (web app CVE, misconfig, weak credentials) for a shell"
+    },
+    {
+      "objective": "root shell",
+      "vuln_class": "privilege-escalation",
+      "route": "",
+      "trigger": "bounded local privesc enumeration; exploit the intended path (SUID/sudo/cron/kernel/service) to root"
+    }
+  ]
+}

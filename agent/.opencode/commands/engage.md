@@ -499,6 +499,8 @@ The subagent emits a `#### Service Queue` JSONL block (`host`,`port`,`proto`,`se
 
 ```bash
 ./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap.xml"
+# Re-resolve the profile now that open ports are known (network profiles match on a port signature).
+python3 ./scripts/lab_objective.py detect "$DIR"
 ./scripts/dispatcher.sh "$DIR/cases.db" stats-by-stage
 # then: fetch-by-stage ingested service <limit> network-analyst
 ```

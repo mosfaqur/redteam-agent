@@ -205,6 +205,7 @@ Hard rules to keep subagent prompts maintainable:
 |---|---|---|---|
 | operator | primary | always | entry point |
 | recon-specialist | active | initial discovery + auth-respawn flag | broad surface mapping |
+| network-analyst | active (Pattern A) | stage=ingested + type=service | TCP/UDP service testing mode unique |
 | source-analyzer | active (overdispatched, separate concern) | stage=ingested + type∈{js,page,…} | static-analysis mode unique |
 | vulnerability-analyst | active | stage=ingested + type∈{api,form,…} | main triage workhorse |
 | exploit-developer | active | stage=vuln_confirmed | chain-attack + exploit construction |

@@ -83,6 +83,15 @@ Concrete observability / diagnostic hits from this pass (for example `/metrics`,
 Emit only directly requestable queue inputs. Use one JSON line per endpoint:
 `{"method":"GET","url":"https://target/api-docs","url_path":"/api-docs","type":"api-spec","source":"recon-specialist"}`
 
+#### Service Queue
+When you scan ports (network engagements, or non-web services on a URL target), emit one JSON line
+per OPEN TCP/UDP service so the operator can ingest it with
+`./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist < service_queue.jsonl`:
+`{"host":"10.0.0.5","port":445,"proto":"tcp","service":"smb","product":"Samba","version":"4.7.6","state":"open","source":"recon-specialist"}`
+Prefer saving an XML scan (`nmap -oX`) and letting the operator run `net_ingest.sh --nmap-xml`.
+Do NOT emit service lines for closed/filtered ports, and keep web ports (80/443/8080) in
+`#### Queue Endpoints` instead — they belong to the HTTP pipeline.
+
 #### Interesting Findings
 - Notable items with WHY they matter
 

@@ -67,7 +67,7 @@ if [[ "$batch_count" == "0" ]]; then
     batch_paths=""
 else
     batch_ids="$(jq -r 'map(.id | tostring) | join(",")' "$OUT_FILE")"
-    batch_paths="$(jq -r 'map(.url_path // .url // "") | join(",")' "$OUT_FILE")"
+    batch_paths="$(jq -r 'map(if (.host // "") != "" then (.host + ":" + ((.port // 0) | tostring) + "/" + (.proto // "")) else (.url_path // .url // "") end) | join(",")' "$OUT_FILE")"
 fi
 
 printf 'BATCH_FILE=%s\n' "$OUT_FILE"

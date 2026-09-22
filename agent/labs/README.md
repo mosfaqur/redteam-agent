@@ -18,6 +18,9 @@ not hardcoded in the prompt.
 | `generic-ctf.json` | ctf | Flag-based CTF. Objectives are captured flags tracked in `objective-state.json`. |
 | `generic-network.json` | network | Network / AD labs. Objectives are declared locally (domain admin, host root, ...) and tracked in `objective-state.json`. |
 | `metasploitable.json` | network | Metasploitable 2 service-exploit checklist. |
+| `hackthebox.json` | network | HTB machine (user.txt / root.txt). Select explicitly with `--profile hackthebox`. |
+| `vulnhub.json` | network | VulnHub VM (user shell / root shell). Select with `--profile vulnhub`. |
+| `tryhackme.json` | network | TryHackMe room (task flags). Select with `--profile tryhackme`. |
 | `juice-shop.json` | web-app | OWASP Juice Shop (extracted from the original hardcoded prompt). |
 | `dvwa.json` | web-app | Damn Vulnerable Web Application. |
 | `webgoat.json` | web-app | OWASP WebGoat. |

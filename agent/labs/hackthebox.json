@@ -1,0 +1,44 @@
+{
+  "id": "hackthebox",
+  "display_name": "Hack The Box machine",
+  "kind": "network",
+  "priority": 60,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "user.txt",
+      "root.txt"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "user.txt",
+      "vuln_class": "initial-access",
+      "route": "",
+      "trigger": "enumerate every open service (web, SMB, FTP, SSH, DBs, mail); gain a foothold and read /home/<user>/user.txt or the user flag"
+    },
+    {
+      "objective": "root.txt",
+      "vuln_class": "privilege-escalation",
+      "route": "",
+      "trigger": "run a bounded local enumeration pass (sudo -l, SUID, cron, capabilities, kernel, credentials) and escalate to read /root/root.txt"
+    },
+    {
+      "objective": "credential reuse",
+      "vuln_class": "credential-access",
+      "route": "",
+      "trigger": "reuse any recovered credential/hash across services (SSH, SMB, web, DB) before brute forcing"
+    }
+  ]
+}

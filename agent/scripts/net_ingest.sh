@@ -16,6 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/db.sh"
+source "$SCRIPT_DIR/lib/scope.sh"
 
 if [[ $# -lt 2 ]]; then
     echo "Usage: echo '<jsonl>' | $0 <db_path> <source_name> [--nmap-xml FILE]" >&2
@@ -47,6 +48,15 @@ fi
 
 db_init "$DB_PATH"
 
+# Precompute the scope list so out-of-scope services are not queued.
+ENG_DIR="$(cd "$(dirname "$DB_PATH")" && pwd)"
+SCOPE_LIST=()
+if [[ -f "$ENG_DIR/scope.json" ]]; then
+    while IFS= read -r item; do
+        [[ -n "$item" ]] && SCOPE_LIST+=("$item")
+    done < <(scope_entries "$ENG_DIR")
+fi
+
 count=0
 
 process_line() {
@@ -68,6 +78,10 @@ process_line() {
 
     [[ -n "$host" && -n "$port" ]] || return 0
     [[ "$port" =~ ^[0-9]+$ ]] || return 0
+
+    if [[ ${#SCOPE_LIST[@]} -gt 0 ]] && ! host_in_scope "$host" "${SCOPE_LIST[@]}"; then
+        return 0
+    fi
 
     case "$state" in
         open|"open|filtered"|"") ;;

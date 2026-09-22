@@ -16,15 +16,22 @@ first-class queue rows (`type=service`) routed to `network-analyst`, then to
 ## Producer
 
 ```bash
+# One-shot TCP + UDP discovery + ingest (target defaults to scope.json)
+./scripts/netscan.sh "$DIR"
+./scripts/netscan.sh "$DIR" 10.0.0.0/24 --top-ports 100
+./scripts/netscan.sh "$DIR" 10.10.10.5 --no-udp
+
 # From nmap XML
-./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap.xml"
+./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap_tcp.xml"
 
 # From JSONL (recon-specialist `#### Service Queue` block)
 echo '{"host":"10.0.0.5","port":445,"proto":"tcp","service":"smb","state":"open"}' \
   | ./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist
 ```
 
-Only `state=open` / `open|filtered` rows are queued. `nmap -oX` is the reliable path.
+Only `state=open` / `open|filtered` rows are queued, and hosts outside `scope.json`
+are dropped. `netscan.sh` runs `nmap -sV -sC` (TCP) and `nmap -sU --top-ports`
+(UDP; raw sockets may need root) and ingests both. `nmap -oX` is the reliable path.
 
 ## Network engagement mode
 
@@ -66,6 +73,9 @@ They cross-reference the existing `references/active-directory/` and
 
 ## Lab profiles
 
-`labs/generic-network.json` (declared AD objectives) and `labs/metasploitable.json`
-(service-exploit checklist) drive the objective/closure gate for network labs. Add your
-own under `agent/labs/` — no prompt edits needed.
+`labs/generic-network.json` (declared AD objectives), `labs/metasploitable.json`
+(service-exploit checklist), and selectable `labs/hackthebox.json` / `labs/vulnhub.json` /
+`labs/tryhackme.json` (user/root or task objectives) drive the objective/closure gate for
+network labs. Select a non-auto-detected profile with
+`python3 ./scripts/lab_objective.py detect "$DIR" --profile hackthebox`. Add your own under
+`agent/labs/` — no prompt edits needed.

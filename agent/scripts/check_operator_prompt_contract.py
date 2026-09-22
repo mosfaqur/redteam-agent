@@ -49,11 +49,21 @@ REQUIRED_SNIPPETS = [
 
 def main() -> int:
     failures = []
+    checked = 0
     for path in FILES:
+        if not path.exists():
+            # Installed runtimes ship only the operator prompt for their own
+            # product (e.g. .opencode/prompts/agents/operator.txt); the shared
+            # operator-core.md / CLAUDE.md / AGENTS.md are repo-dev files.
+            continue
+        checked += 1
         text = path.read_text(encoding="utf-8")
         for snippet in REQUIRED_SNIPPETS:
             if snippet not in text:
                 failures.append(f"{path.relative_to(ROOT)} missing {snippet!r}")
+    if checked == 0:
+        print("operator prompt contract: no operator prompt files present (installed runtime); skipped")
+        return 0
     if failures:
         print("operator prompt contract failures:", file=sys.stderr)
         for failure in failures:

@@ -30,7 +30,13 @@ FORBIDDEN = [
 
 def main() -> int:
     failures: list[str] = []
+    checked = 0
     for path in FILES:
+        if not path.exists():
+            # Installed runtimes ship only their own operator prompt; the shared
+            # operator-core.md / CLAUDE.md / AGENTS.md are repo-dev files.
+            continue
+        checked += 1
         text = path.read_text()
         for needle in REQUIRED:
             if needle not in text:
@@ -38,6 +44,9 @@ def main() -> int:
         for needle in FORBIDDEN:
             if needle in text:
                 failures.append(f"{path.relative_to(ROOT)} still contains forbidden pseudo-dispatch: {needle}")
+    if checked == 0:
+        print("operator respawn contract: no operator prompt files present (installed runtime); skipped")
+        return 0
     if failures:
         print("operator respawn contract FAILED")
         for failure in failures:
