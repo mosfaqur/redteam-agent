@@ -7,6 +7,13 @@
     ".opencode/instructions/INSTRUCTIONS.md",
     "skills/web-recon/SKILL.md",
     "skills/port-scanning/SKILL.md",
+    "skills/network-service-testing/SKILL.md",
+    "skills/smb-netbios/SKILL.md",
+    "skills/database-services/SKILL.md",
+    "skills/remote-access-services/SKILL.md",
+    "skills/mail-dns-services/SKILL.md",
+    "skills/ldap-kerberos/SKILL.md",
+    "skills/snmp-ftp-nfs/SKILL.md",
     "skills/directory-fuzzing/SKILL.md",
     "skills/parameter-fuzzing/SKILL.md",
     "skills/sqli-testing/SKILL.md",
@@ -85,6 +92,17 @@
       "bash": true,
       "glob": true,
       "grep": false
+    },
+    "network-analyst": {
+      "description": "TCP/UDP service enumeration and testing: SMB/RPC, databases, mail/DNS, remote access, LDAP/Kerberos, SNMP/FTP/NFS. Picks up stage=ingested cases with type=service.",
+      "mode": "subagent",
+      "prompt": "{file:prompts/agents/network-analyst.txt}",
+      "read": true,
+      "write": false,
+      "edit": false,
+      "bash": true,
+      "glob": true,
+      "grep": true
     },
     "vulnerability-analyst": {
       "description": "Analyzes scan results, identifies vulnerability patterns, prioritizes attack paths.",

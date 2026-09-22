@@ -1,0 +1,47 @@
+{
+  "id": "generic-network",
+  "display_name": "Generic network / Active Directory lab",
+  "kind": "network",
+  "priority": 5,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "Domain Admin",
+      "Local Admin on target host",
+      "Initial foothold (valid domain credential)",
+      "Lateral movement to second host",
+      "Credential material captured (hash/ticket)"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "Domain Admin",
+      "vuln_class": "active-directory",
+      "route": "",
+      "trigger": "walk the AD attack chain (enumeration -> credential access -> Kerberos abuse -> lateral movement -> privilege escalation); record concrete evidence at each hop"
+    },
+    {
+      "objective": "Local Admin on target host",
+      "vuln_class": "privilege-escalation",
+      "route": "",
+      "trigger": "run one bounded local privesc enumeration pass and preserve the successful vector"
+    },
+    {
+      "objective": "Credential material captured (hash/ticket)",
+      "vuln_class": "credential-access",
+      "route": "",
+      "trigger": "capture and preserve the exact hash/ticket artifact; do not retire on a generic credential mention"
+    }
+  ]
+}

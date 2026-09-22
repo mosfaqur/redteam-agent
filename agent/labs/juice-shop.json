@@ -1,0 +1,260 @@
+{
+  "id": "juice-shop",
+  "display_name": "OWASP Juice Shop",
+  "kind": "web-app",
+  "priority": 100,
+  "match": {
+    "always": false,
+    "hosts": ["juice-shop", "juice-shop-lab", "juiceshop", "juice-shop.docker"],
+    "ports": [3000, 8000],
+    "path_probes": [
+      {"path": "/api/Challenges", "contains": "solved"},
+      {"path": "/rest/products/search?q=apple", "contains": "Apple Juice"}
+    ]
+  },
+  "objective": {
+    "type": "remote",
+    "discover": false,
+    "source": {"url": "/api/Challenges", "parser": "juice-shop"},
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "Admin Registration",
+      "Admin Section",
+      "Bjoern's Favorite Pet",
+      "NFT Takeover",
+      "Web3 Sandbox",
+      "Confidential Document",
+      "DOM XSS",
+      "Database Schema",
+      "Deluxe Fraud",
+      "Deprecated Interface",
+      "Error Handling",
+      "Five-Star Feedback",
+      "Forged Feedback",
+      "Forgotten Developer Backup",
+      "Login Admin",
+      "Password Strength",
+      "Score Board",
+      "Security Policy",
+      "Upload Size",
+      "Upload Type",
+      "User Credentials",
+      "View Basket",
+      "XXE Data Access",
+      "Zero Stars",
+      "Meta Geo Stalking",
+      "Exposed Metrics",
+      "Poison Null Byte",
+      "Exposed credentials",
+      "Missing Encoding",
+      "Password Hash Leak"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "Score Board",
+      "vuln_class": "info-disclosure",
+      "route": "/api/Challenges",
+      "trigger": "one bounded live visit/API read of the scoreboard or /api/Challenges; record solved-state evidence"
+    },
+    {
+      "objective": "Security Policy",
+      "vuln_class": "info-disclosure",
+      "route": "/.well-known/security.txt",
+      "trigger": "fetch the policy path as a concrete low-friction recall branch instead of leaving it in generic data backlog"
+    },
+    {
+      "objective": "Confidential Document",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "inspect the canonical public document paths separately from the generic directory-listing finding"
+    },
+    {
+      "objective": "Password Hash Leak",
+      "vuln_class": "sensitive-data",
+      "route": "/rest/user/authentication-details/",
+      "trigger": "fetch and preserve the exact hash-bearing file/response; a decoded JWT claim or /api/Users roster is not enough. Requeue a signed-auth replay for the current user, then solved-check Score Board"
+    },
+    {
+      "objective": "Forgotten Developer Backup",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "retry the developer backup artifact plus a %2500.md / blocked-file bypass candidate"
+    },
+    {
+      "objective": "Forgotten Sales Backup",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "retry the sales backup artifact with exact filenames from the listing plus encoding bypasses"
+    },
+    {
+      "objective": "Misplaced Signature File",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "retry adjacent .sig files and signature/backup filenames from the listing"
+    },
+    {
+      "objective": "Poison Null Byte",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "retry a blocked artifact with a poison-null-byte suffix such as %2500.md"
+    },
+    {
+      "objective": "Deprecated Interface",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "retry package.json.bak / package-lock.json.bak style artifacts"
+    },
+    {
+      "objective": "Easter Egg",
+      "vuln_class": "info-disclosure",
+      "route": "/ftp",
+      "trigger": "follow hidden media/file references or the easter-egg route discovered in source"
+    },
+    {
+      "objective": "NFT Takeover",
+      "vuln_class": "web3",
+      "route": "/rest/web3",
+      "trigger": "verify the NFT/contract consumer separately from generic Web3 route access. A MetaMask/provider-missing browser message is NOT terminal: requeue a provider-emulated browser flow or contract/API consumer replay"
+    },
+    {
+      "objective": "Web3 Sandbox",
+      "vuln_class": "web3",
+      "route": "/#/web3-sandbox",
+      "trigger": "execute the Web3 sandbox workflow with an injected window.ethereum stub, then refresh /api/Challenges"
+    },
+    {
+      "objective": "Five-Star Feedback",
+      "vuln_class": "business-logic",
+      "route": "/api/Feedbacks/",
+      "trigger": "submit/verify the canonical five-star feedback action separately from forged-feedback proof"
+    },
+    {
+      "objective": "Forged Feedback",
+      "vuln_class": "business-logic",
+      "route": "/api/Feedbacks/",
+      "trigger": "submit a forged/admin feedback mutation, then visit Score Board / /api/Challenges"
+    },
+    {
+      "objective": "Zero Stars",
+      "vuln_class": "business-logic",
+      "route": "/api/Feedbacks/",
+      "trigger": "submit a bounded rating: 0 feedback mutation through the API or native form bypass; the visible star widget omitting zero is not terminal"
+    },
+    {
+      "objective": "Admin Registration",
+      "vuln_class": "broken-access-control",
+      "route": "/api/Users/",
+      "trigger": "run one bounded admin-role account creation attempt (role=admin / equivalent role-injection field); if the role is stripped, requeue the exact body"
+    },
+    {
+      "objective": "Login Admin",
+      "vuln_class": "auth",
+      "route": "/rest/user/login",
+      "trigger": "acquire an admin session via SQLi or credential reuse, then solved-check Login Admin"
+    },
+    {
+      "objective": "Admin Section",
+      "vuln_class": "broken-access-control",
+      "route": "/#/administration",
+      "trigger": "visit the admin section with the validated admin session and record solved-state"
+    },
+    {
+      "objective": "Password Strength",
+      "vuln_class": "auth",
+      "route": "/rest/user/login",
+      "trigger": "after any admin/support takeover or validated credential, try the bounded weak-password login/change/reset branch"
+    },
+    {
+      "objective": "Database Schema",
+      "vuln_class": "sqli",
+      "route": "/rest/user/login",
+      "trigger": "perform one schema-oriented extraction (sqlite_master / information_schema / DB error path); ORM stack traces or user roster dumps are not substitutes. If the flag stays false, try a second carrier (native login SQLi with a sqlite_master UNION payload, or the search route with the same payload plus a Score Board visit)"
+    },
+    {
+      "objective": "Upload Type",
+      "vuln_class": "file-upload",
+      "route": "/file-upload",
+      "trigger": "submit a non-PDF/non-ZIP payload and check the consumer/scoreboard result instead of stopping at ZIP acceptance"
+    },
+    {
+      "objective": "Upload Size",
+      "vuln_class": "file-upload",
+      "route": "/file-upload",
+      "trigger": "submit an oversized payload and check the consumer/scoreboard result"
+    },
+    {
+      "objective": "User Credentials",
+      "vuln_class": "sensitive-data",
+      "route": "/rest/user/authentication-details/",
+      "trigger": "after privileged auth, fetch a credential-bearing endpoint/artifact and preserve hash/salt/security-answer evidence, not only emails/roles. If only emails/roles/deluxe tokens are exposed, requeue one credential-bearing consumer path"
+    },
+    {
+      "objective": "Exposed credentials",
+      "vuln_class": "sensitive-data",
+      "route": "/ftp",
+      "trigger": "preserve one credential-bearing artifact (hashes, tokens, API keys) and solved-check separately from User Credentials"
+    },
+    {
+      "objective": "View Basket",
+      "vuln_class": "broken-access-control",
+      "route": "/rest/basket/",
+      "trigger": "verify the canonical cross-user basket view trigger separately from generic basket manipulation; preserve the authenticated user context and refresh Score Board"
+    },
+    {
+      "objective": "DOM XSS",
+      "vuln_class": "xss",
+      "route": "/#/search",
+      "trigger": "if a search-route render produces an alert but the challenge stays false, replay the canonical hash-route iframe payload and visit Score Board before closing"
+    },
+    {
+      "objective": "Missing Encoding",
+      "vuln_class": "xss",
+      "route": "/#/search",
+      "trigger": "replay both raw and percent-encoded backtick iframe variants followed by a Score Board visit before the branch can be called blocked"
+    },
+    {
+      "objective": "Exposed Metrics",
+      "vuln_class": "info-disclosure",
+      "route": "/metrics",
+      "trigger": "fetch /metrics as a standalone recall branch and solved-check it; do not collapse it into generic observability coverage"
+    },
+    {
+      "objective": "Error Handling",
+      "vuln_class": "info-disclosure",
+      "route": "/rest/products/search",
+      "trigger": "trigger a server error response and preserve the error/stack artifact"
+    },
+    {
+      "objective": "Deluxe Fraud",
+      "vuln_class": "business-logic",
+      "route": "/rest/deluxe-membership",
+      "trigger": "attempt the deluxe-membership upgrade flow with a forged payment/order state"
+    },
+    {
+      "objective": "Meta Geo Stalking",
+      "vuln_class": "osint",
+      "route": "/#/photo-wall",
+      "trigger": "correlate photo metadata / social clues to answer the geo security question, then verify the solved-state"
+    },
+    {
+      "objective": "Bjoern's Favorite Pet",
+      "vuln_class": "auth",
+      "route": "/rest/user/security-question",
+      "trigger": "enumerate candidate pet answers from source bundles, comments, profile metadata, /ftp documents, and OSINT snippets; a single wrong answer is incomplete — return REQUEUE with the candidate list if still blocked"
+    },
+    {
+      "objective": "Reset Bjoern's Password",
+      "vuln_class": "auth",
+      "route": "/rest/user/reset-password",
+      "trigger": "correlate the recovered security answer with the reset flow for the Bjoern account, then verify login and solved-state"
+    },
+    {
+      "objective": "XXE Data Access",
+      "vuln_class": "xxe",
+      "route": "/file-upload",
+      "trigger": "when XML-capable routes or file upload/download flows exist, submit one bounded XXE payload that reads a local file and record the returned artifact"
+    }
+  ]
+}

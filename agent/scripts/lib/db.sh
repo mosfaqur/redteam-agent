@@ -200,3 +200,66 @@ db_insert_case() {
     _db_sqlite_with_retry text "$db_path" "$sql
 SELECT changes();"
 }
+
+# db_insert_service_case <db_path> <host> <port> <proto> <service>
+#   <product> <version> <banner> <source> <scan_ref>
+# Insert a TCP/UDP service case (type='service') with INSERT OR IGNORE dedup.
+# Reuses the HTTP columns for identity: method='SERVICE', url='<proto>://host:port',
+# url_path='/host/port/proto', and params_key_sig=sha1(proto|host|port|service).
+db_insert_service_case() {
+    local db_path="$1"
+    local host="$2"
+    local port="$3"
+    local proto="$4"
+    local service="$5"
+    local product="$6"
+    local version="$7"
+    local banner="$8"
+    local source="$9"
+    local scan_ref="${10}"
+
+    if [[ -z "$db_path" || -z "$host" || -z "$port" ]]; then
+        echo "db_insert_service_case: db_path, host, and port are required" >&2
+        return 1
+    fi
+
+    [[ "$proto" =~ ^(tcp|udp)$ ]] || proto="tcp"
+    [[ "$service" == "null" ]] && service=""
+    [[ "$product" == "null" ]] && product=""
+    [[ "$version" == "null" ]] && version=""
+    [[ "$banner" == "null" ]] && banner=""
+    [[ "$scan_ref" == "null" ]] && scan_ref=""
+
+    local method="SERVICE"
+    local url="${proto}://${host}:${port}"
+    local url_path="/${host}/${port}/${proto}"
+    local params_key_sig
+    params_key_sig="$(printf '%s' "${proto}|${host}|${port}|${service}" | sha1sum | awk '{print $1}')"
+
+    local e_method e_url e_url_path e_host e_proto e_service e_product e_version e_banner e_source e_scan_ref e_sig
+    e_method=$(_db_escape "$method")
+    e_url=$(_db_escape "$url")
+    e_url_path=$(_db_escape "$url_path")
+    e_host=$(_db_escape "$host")
+    e_proto=$(_db_escape "$proto")
+    e_service=$(_db_escape "$service")
+    e_product=$(_db_escape "$product")
+    e_version=$(_db_escape "$version")
+    e_banner=$(_db_escape "$banner")
+    e_source=$(_db_escape "$source")
+    e_scan_ref=$(_db_escape "$scan_ref")
+    e_sig=$(_db_escape "$params_key_sig")
+
+    local sql="INSERT OR IGNORE INTO cases (
+    method, url, url_path,
+    host, port, proto, service, service_product, service_version, banner, scan_ref,
+    type, source, status, params_key_sig
+) VALUES (
+    '${e_method}', '${e_url}', '${e_url_path}',
+    '${e_host}', ${port}, '${e_proto}', '${e_service}', '${e_product}', '${e_version}', '${e_banner}', '${e_scan_ref}',
+    'service', '${e_source}', 'pending', '${e_sig}'
+);"
+
+    _db_sqlite_with_retry text "$db_path" "$sql
+SELECT changes();"
+}

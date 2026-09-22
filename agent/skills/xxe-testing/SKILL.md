@@ -95,16 +95,17 @@ origin: RedteamOpencode
 - [ ] Embed XXE in DOCX: modify `[Content_Types].xml` or embedded XML parts
 - [ ] XLSX: inject in `xl/sharedStrings.xml`
 
-### 8. CTF / Juice Shop Recall Contract
+### 8. Lab objective recall contract
 
-When Juice Shop exposes XML-capable routes or file upload/download flows, do one bounded
-XXE recall pass before closing the case:
+When the active lab profile (`lab-profile.json`) lists an XXE/XML objective, do one bounded
+XXE recall pass before closing the case. Consult the profile's `recall_branches` for the
+exact route and trigger.
 
 - Try a safe `Content-Type: application/xml` switch on API endpoints already accepting JSON
   only after confirming it stays within the normal 1-2 representative probe budget.
 - For upload surfaces, include one SVG/XML payload carrying a benign external entity marker
   and then visit the consumer route that parses/renders the uploaded file.
-- Preserve explicit solved-state or negative evidence for `XXE Data Access`; if parser
+- Preserve explicit solved-state or negative evidence for the objective (`python3 ./scripts/lab_objective.py snapshot "$DIR"`); if parser
   behavior is unclear, return `REQUEUE` with the exact XML-capable endpoint/file consumer
   rather than marking the family exhausted.
 

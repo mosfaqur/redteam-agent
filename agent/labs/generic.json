@@ -1,0 +1,31 @@
+{
+  "id": "generic",
+  "display_name": "Generic lab (auto-detect objective source)",
+  "kind": "auto",
+  "priority": 0,
+  "match": {
+    "always": true,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "discover",
+    "discover": true,
+    "candidates": [
+      {"url": "/api/Challenges", "parser": "juice-shop"},
+      {"url": "/api/v1/challenges", "parser": "ctfd"},
+      {"url": "/api/challenges", "parser": "generic-json"},
+      {"url": "/api/scoreboard", "parser": "generic-json"},
+      {"url": "/scoreboard", "parser": "html-scoreboard"},
+      {"url": "/score-board", "parser": "html-scoreboard"},
+      {"url": "/flags.txt", "parser": "flag-lines"},
+      {"url": "/flags", "parser": "flag-lines"},
+      {"url": "/flag", "parser": "flag-text"}
+    ],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": []
+  },
+  "recall_branches": []
+}

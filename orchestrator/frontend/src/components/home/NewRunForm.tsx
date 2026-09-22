@@ -164,7 +164,7 @@ export function NewRunForm({ projects, onCreateRun, onCreateProject, onEditProje
                     void handleCreateProject();
                   }
                 }}
-                placeholder="e.g. juice-shop-lab"
+                placeholder="e.g. acme-lab"
                 disabled={creatingProject}
               />
             </label>
@@ -229,7 +229,7 @@ export function NewRunForm({ projects, onCreateRun, onCreateProject, onEditProje
               type="text"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              placeholder="http://juice-shop:8000"
+              placeholder="http://lab-target:8080"
               disabled={submitting}
               required
             />

@@ -67,6 +67,25 @@ grep -oP '\d+/open/tcp//\S+' $DIR/scans/nmap_initial.gnmap
 grep "open" $DIR/scans/nmap_targeted.txt | grep -v "filtered"
 ```
 
+### 8. Queue Services (non-HTTP)
+
+Save an XML scan and ingest open TCP/UDP services into the case queue so
+`network-analyst` can test them:
+
+```bash
+run_tool nmap -sV -sC -T4 --host-timeout 120s TARGET -oX $DIR/scans/nmap.xml
+./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap.xml"
+```
+
+Or emit a `#### Service Queue` JSONL block and pipe it to `net_ingest.sh`:
+
+```json
+{"host":"10.0.0.5","port":445,"proto":"tcp","service":"smb","product":"Samba","version":"4.7.6","state":"open","source":"recon-specialist"}
+```
+
+Then verify: `./scripts/dispatcher.sh "$DIR/cases.db" stats-by-stage` should show
+`service` cases at stage `ingested`.
+
 ## Common Port Reference
 
 | Port | Service | Notes |

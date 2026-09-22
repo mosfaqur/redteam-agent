@@ -32,6 +32,7 @@
 /.opencode/vendor/
 docs/**
 !docs/
+!docs/*.md
 !docs/redteam-agent-demo-fast.gif
 !docs/screenshot-20260429-045700.png
 /tmp/
@@ -201,6 +202,7 @@ agent/build/
 /skills/
 /references/
 /docker/
+/labs/
 
 # Playwright MCP tool artifacts (snapshots, console logs, debug trees)
 /.playwright-mcp/

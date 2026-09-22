@@ -75,6 +75,47 @@ extract_command_hosts() {
     } | sort -u
 }
 
+# _host_in_network <host> <cidr|range>
+# True when <host> is an IP inside the given CIDR (10.0.0.0/24) or range
+# (10.0.0.5-20 or 10.0.0.5-10.0.0.20).
+_host_in_network() {
+    local host="${1:-}"
+    local entry="${2:-}"
+    python3 - "$host" "$entry" <<'PY'
+import ipaddress
+import sys
+
+host, entry = sys.argv[1], sys.argv[2]
+try:
+    ip = ipaddress.ip_address(host)
+except ValueError:
+    raise SystemExit(1)
+
+try:
+    if "/" in entry:
+        net = ipaddress.ip_network(entry, strict=False)
+        raise SystemExit(0 if ip in net else 1)
+    if "-" in entry:
+        start_s, end_s = entry.split("-", 1)
+        start_s, end_s = start_s.strip(), end_s.strip()
+        if "." not in end_s and ":" not in end_s:
+            end_s = ".".join(start_s.split(".")[:-1] + [end_s])
+        start = ipaddress.ip_address(start_s)
+        end = ipaddress.ip_address(end_s)
+        raise SystemExit(0 if int(start) <= int(ip) <= int(end) else 1)
+except ValueError:
+    raise SystemExit(1)
+raise SystemExit(1)
+PY
+}
+
+# is_network_target <spec> — bare IPv4/CIDR/range (no scheme), for network engagements.
+is_network_target() {
+    local spec="${1:-}"
+    [[ -n "$spec" ]] || return 1
+    [[ "$spec" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?(-[0-9.]+)?$ ]]
+}
+
 host_in_scope() {
     local host="${1:?host required}"
     shift
@@ -86,6 +127,19 @@ host_in_scope() {
 
     for allowed in "$@"; do
         [[ -n "$allowed" ]] || continue
+
+        # CIDR (10.0.0.0/24) or IP range (10.0.0.5-20)
+        case "$allowed" in
+            */*)
+                _host_in_network "$host" "$allowed" && return 0
+                continue
+                ;;
+        esac
+        if [[ "$allowed" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9] ]]; then
+            _host_in_network "$host" "$allowed" && return 0
+            continue
+        fi
+
         if [[ "$host" == "$allowed" ]]; then
             return 0
         fi

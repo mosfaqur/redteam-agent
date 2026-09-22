@@ -8,6 +8,7 @@ finding_prefix_for_agent() {
         vulnerability-analyst) printf '%s\n' "VA" ;;
         source-analyzer) printf '%s\n' "SA" ;;
         recon-specialist) printf '%s\n' "RE" ;;
+        network-analyst) printf '%s\n' "NA" ;;
         fuzzer) printf '%s\n' "FZ" ;;
         osint-analyst) printf '%s\n' "OS" ;;
         *)

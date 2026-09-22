@@ -260,6 +260,28 @@ ORDER BY
           OR lower(coalesce(nullif(url_path, ''), url)) LIKE '%filter%'
         THEN 25 ELSE 0
       END
+    + CASE lower(coalesce(service, ''))
+        WHEN 'smb' THEN 230
+        WHEN 'msrpc' THEN 220
+        WHEN 'ldap' THEN 210
+        WHEN 'kerberos' THEN 210
+        WHEN 'ms-wbt-server' THEN 205
+        WHEN 'rdp' THEN 205
+        WHEN 'mssql' THEN 195
+        WHEN 'mysql' THEN 195
+        WHEN 'postgresql' THEN 185
+        WHEN 'redis' THEN 185
+        WHEN 'mongodb' THEN 185
+        WHEN 'elasticsearch' THEN 185
+        WHEN 'telnet' THEN 170
+        WHEN 'vnc' THEN 165
+        WHEN 'snmp' THEN 150
+        WHEN 'nfs' THEN 150
+        WHEN 'smtp' THEN 140
+        WHEN 'ftp' THEN 120
+        WHEN 'ssh' THEN 110
+        ELSE 0
+      END
   ) DESC,
   id ASC
 EOF
@@ -282,6 +304,16 @@ ensure_cases_column "body_params" "TEXT"
 ensure_cases_column "assigned_agent" "TEXT"
 ensure_cases_column "consumed_at" "TEXT"
 sql "ALTER TABLE cases ADD COLUMN retry_count INTEGER DEFAULT 0;" 2>/dev/null || true
+
+# Network service columns (added for TCP/UDP service cases; type='service').
+ensure_cases_column "host" "TEXT"
+ensure_cases_column "port" "INTEGER"
+ensure_cases_column "proto" "TEXT"
+ensure_cases_column "service" "TEXT"
+ensure_cases_column "service_product" "TEXT"
+ensure_cases_column "service_version" "TEXT"
+ensure_cases_column "banner" "TEXT"
+ensure_cases_column "scan_ref" "TEXT"
 
 # Pipeline stage column (added 2026-04-25). Lets cases progress through
 # discrete pipeline stages independently of the legacy phase flag, so
@@ -540,6 +572,14 @@ case "$ACTION" in
     ensure_cases_column "assigned_agent" "TEXT"
     ensure_cases_column "consumed_at" "TEXT"
     sql "ALTER TABLE cases ADD COLUMN retry_count INTEGER DEFAULT 0;" 2>/dev/null || true
+    ensure_cases_column "host" "TEXT"
+    ensure_cases_column "port" "INTEGER"
+    ensure_cases_column "proto" "TEXT"
+    ensure_cases_column "service" "TEXT"
+    ensure_cases_column "service_product" "TEXT"
+    ensure_cases_column "service_version" "TEXT"
+    ensure_cases_column "banner" "TEXT"
+    ensure_cases_column "scan_ref" "TEXT"
     ;;
 
   retry-errors)

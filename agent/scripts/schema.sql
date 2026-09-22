@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS cases (
     type TEXT NOT NULL DEFAULT 'unknown',
     source TEXT NOT NULL,
 
+    -- Network service identity (type='service'; HTTP cases leave these NULL).
+    -- host/port/proto/service identify the endpoint; product/version/banner
+    -- carry fingerprint data; scan_ref points at the raw scan artifact.
+    host TEXT,
+    port INTEGER,
+    proto TEXT,
+    service TEXT,
+    service_product TEXT,
+    service_version TEXT,
+    banner TEXT,
+    scan_ref TEXT,
+
     -- State management
     status TEXT NOT NULL DEFAULT 'pending',
     assigned_agent TEXT,

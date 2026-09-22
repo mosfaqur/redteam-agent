@@ -1,0 +1,22 @@
+{
+  "id": "generic-web",
+  "display_name": "Generic web application (no machine-readable objectives)",
+  "kind": "web-app",
+  "priority": 10,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "none",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": []
+  },
+  "recall_branches": []
+}

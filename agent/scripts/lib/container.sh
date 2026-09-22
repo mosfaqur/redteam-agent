@@ -7,12 +7,68 @@ CONTAINER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$CONTAINER_LIB_DIR/noise.sh"
 
+# Load repo-level .env defaults (non-destructive: only fills unset vars) so the
+# local/bare-metal runtime picks up REDTEAM_RUNTIME_MODE and tool paths even
+# when the CLI was started without exporting them. Explicit environment values
+# always win.
+_redteam_env_file() {
+    local candidate
+    for candidate in "$CONTAINER_LIB_DIR/../../.env" "$(pwd)/.env"; do
+        [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+    done
+    return 1
+}
+
+_load_env_defaults() {
+    local file="$1" line key val
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        case "$key" in
+            ''|*[!A-Za-z0-9_]*) continue ;;
+            [0-9]*) continue ;;
+        esac
+        [ -n "${!key:-}" ] && continue
+        case "$val" in
+            \"*\") val="${val#\"}"; val="${val%\"}" ;;
+            \'*\') val="${val#\'}"; val="${val%\'}" ;;
+        esac
+        export "$key=$val"
+    done < "$file"
+}
+
+if _redteam_env_file >/dev/null 2>&1; then
+    _load_env_defaults "$(_redteam_env_file)"
+fi
+
+# Resolve a tool path: prefer a configured binary that actually exists, then
+# the first matching binary on PATH, then fall back to the configured/default.
+_which_first() {
+    local c
+    for c in "$@"; do
+        [ -n "$c" ] || continue
+        command -v "$c" >/dev/null 2>&1 && { command -v "$c"; return 0; }
+    done
+    return 1
+}
+
+_resolve_bin() {
+    local configured="$1"; shift
+    if [ -n "$configured" ] && command -v "$configured" >/dev/null 2>&1; then
+        printf '%s\n' "$configured"
+        return 0
+    fi
+    _which_first "$@" || printf '%s\n' "$configured"
+}
+
 REDTEAM_IMAGE="${REDTEAM_IMAGE:-kali-redteam:latest}"
 PROXY_IMAGE="${PROXY_IMAGE:-redteam-proxy:latest}"
 KATANA_IMAGE="${KATANA_IMAGE:-projectdiscovery/katana:latest}"
-MITMPROXY_BIN="${MITMPROXY_BIN:-mitmdump}"
-KATANA_LOCAL_BIN="${KATANA_LOCAL_BIN:-katana}"
-KATANA_CHROME_BIN="${KATANA_CHROME_BIN:-/usr/bin/chromium}"
+MITMPROXY_BIN="$(_resolve_bin "${MITMPROXY_BIN:-}" mitmdump)"
+KATANA_LOCAL_BIN="$(_resolve_bin "${KATANA_LOCAL_BIN:-}" katana)"
+KATANA_CHROME_BIN="$(_resolve_bin "${KATANA_CHROME_BIN:-}" chromium chromium-browser google-chrome google-chrome-stable)"
 KATANA_HEADLESS_OPTIONS="${KATANA_HEADLESS_OPTIONS:---no-sandbox,--disable-dev-shm-usage,--disable-gpu}"
 KATANA_CRAWL_DEPTH="${KATANA_CRAWL_DEPTH:-8}"
 KATANA_CRAWL_DURATION="${KATANA_CRAWL_DURATION:-15m}"

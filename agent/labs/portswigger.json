@@ -1,0 +1,31 @@
+{
+  "id": "portswigger",
+  "display_name": "PortSwigger Web Security Academy",
+  "kind": "web-app",
+  "priority": 90,
+  "match": {
+    "always": false,
+    "hosts": ["web-security-academy.net", "portswigger-labs"],
+    "ports": [80, 443],
+    "path_probes": [
+      {"path": "/", "contains": "Web Security Academy"}
+    ]
+  },
+  "objective": {
+    "type": "remote",
+    "discover": false,
+    "source": {"url": "/", "parser": "html-solved"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": []
+  },
+  "recall_branches": [
+    {
+      "objective": "Solve the lab",
+      "vuln_class": "lab-specific",
+      "route": "/",
+      "trigger": "PortSwigger labs are solved when the page shows the 'Congratulations, you solved the lab!' banner. Re-fetch the lab root after the exploit and confirm the solved banner before closing the branch"
+    }
+  ]
+}

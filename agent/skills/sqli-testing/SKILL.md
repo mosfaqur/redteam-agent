@@ -66,9 +66,9 @@ Version: `SELECT version()` (MySQL/PG), `SELECT @@version` (MySQL/MSSQL), `SELEC
 ' UNION SELECT NULL,CONCAT(username,':',password),NULL FROM users--
 ```
 
-### Juice Shop recall closure
+### Lab objective recall closure
 
-When OWASP Juice Shop is the local benchmark target, generic SQLi proof or admin roster access is not enough for the `Database Schema` and `User Credentials` recall branches. If `databaseSchemaChallenge` remains false, requeue one exact native injection workflow (login/search or the route that already showed SQLi signal) with a `sqlite_master` extraction payload, save the response artifact, and immediately fetch `/api/Challenges` or visit Score Board. If `userCredentialsChallenge` remains false after `/api/Users` or JWT metadata, requeue a credential-bearing dump (`Users.password`, `Users.email,password`, signed `/rest/user/authentication-details/`, or an equivalent backup/database artifact) and solved-check that branch separately. Do not close either branch as a generic SQL finding until the handoff records `challenge=<Database Schema|User Credentials> status=solved|requeued evidence=<artifact> next=<exact action>`.
+When the active profile (`lab-profile.json`) lists schema/credential objectives, generic SQLi proof or admin roster access is not enough. For a schema objective, requeue one exact native injection workflow (login/search or the route that already showed SQLi signal) with a `sqlite_master`/`information_schema` extraction payload, save the response artifact, and immediately run `python3 ./scripts/lab_objective.py snapshot "$DIR"` (or fetch the objective source). For a credential objective, requeue a credential-bearing dump (`Users.password`, signed authentication-details, or an equivalent backup/database artifact) and solved-check that branch separately. Do not close either branch as a generic SQL finding until the handoff records `objective=<name> status=solved|requeued evidence=<artifact> next=<exact action>`. Consult the profile's `recall_branches` for the exact routes and payload hints.
 
 ### Blind Boolean
 ```

@@ -1,0 +1,98 @@
+{
+  "id": "bwapp",
+  "display_name": "bWAPP (buggy web application)",
+  "kind": "web-app",
+  "priority": 80,
+  "match": {
+    "always": false,
+    "hosts": ["bwapp"],
+    "ports": [80, 8080],
+    "path_probes": [
+      {"path": "/bWAPP/login.php", "contains": "bWAPP"},
+      {"path": "/bWAPP/portal.php", "contains": "bWAPP"}
+    ]
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "SQL Injection (GET/Search)",
+      "SQL Injection (POST/Search)",
+      "OS Command Injection",
+      "PHP Code Injection",
+      "File Inclusion (LFI/RFI)",
+      "File Upload",
+      "Cross-Site Scripting (Reflected)",
+      "Cross-Site Scripting (Stored)",
+      "Cross-Site Request Forgery",
+      "XML External Entity (XXE)",
+      "Server-Side Request Forgery (SSRF)",
+      "Insecure Direct Object Reference",
+      "Broken Authentication",
+      "Session Fixation",
+      "Directory Traversal",
+      "Local File Inclusion",
+      "Remote File Inclusion",
+      "HTML Injection",
+      "LDAP Injection",
+      "XML Injection",
+      "Server-Side Includes (SSI) Injection",
+      "Heartbleed",
+      "Shellshock"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "SQL Injection (GET/Search)",
+      "vuln_class": "sqli",
+      "route": "/bWAPP/sqli_1.php",
+      "trigger": "exploit the search parameter and preserve the dumped data"
+    },
+    {
+      "objective": "OS Command Injection",
+      "vuln_class": "command-injection",
+      "route": "/bWAPP/commandi.php",
+      "trigger": "execute a bounded OS command and preserve the output"
+    },
+    {
+      "objective": "File Inclusion (LFI/RFI)",
+      "vuln_class": "file-inclusion",
+      "route": "/bWAPP/rlfi.php",
+      "trigger": "read a local file or include a remote URL and preserve the response"
+    },
+    {
+      "objective": "File Upload",
+      "vuln_class": "file-upload",
+      "route": "/bWAPP/upload.php",
+      "trigger": "upload an executable payload and reach it over HTTP"
+    },
+    {
+      "objective": "XML External Entity (XXE)",
+      "vuln_class": "xxe",
+      "route": "/bWAPP/xxe-1.php",
+      "trigger": "submit an XXE payload and preserve the exfiltrated content"
+    },
+    {
+      "objective": "Server-Side Request Forgery (SSRF)",
+      "vuln_class": "ssrf",
+      "route": "/bWAPP/ssrf.php",
+      "trigger": "make the server fetch an internal/controlled URL and preserve the response"
+    },
+    {
+      "objective": "Insecure Direct Object Reference",
+      "vuln_class": "idor",
+      "route": "/bWAPP/insecure_direct_object_ref_1.php",
+      "trigger": "access another object by changing the id and preserve the response"
+    },
+    {
+      "objective": "Cross-Site Scripting (Stored)",
+      "vuln_class": "xss",
+      "route": "/bWAPP/xss_stored_1.php",
+      "trigger": "store a script payload and confirm execution on render"
+    }
+  ]
+}

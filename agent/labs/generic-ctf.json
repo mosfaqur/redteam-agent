@@ -1,0 +1,26 @@
+{
+  "id": "generic-ctf",
+  "display_name": "Generic flag-based CTF",
+  "kind": "ctf",
+  "priority": 5,
+  "match": {
+    "always": false,
+    "hosts": [],
+    "ports": [],
+    "path_probes": []
+  },
+  "objective": {
+    "type": "flag",
+    "discover": true,
+    "source": {"url": "/flags.txt", "parser": "flag-lines"},
+    "candidates": [
+      {"url": "/flags.txt", "parser": "flag-lines"},
+      {"url": "/flags", "parser": "flag-lines"},
+      {"url": "/flag", "parser": "flag-text"}
+    ],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": []
+  },
+  "recall_branches": []
+}

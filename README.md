@@ -11,14 +11,14 @@
     <img src="https://img.shields.io/badge/platform-macOS%20|%20Linux-blue" alt="Platform">
     <img src="https://img.shields.io/badge/tools-Docker%20containerized-blue" alt="Docker">
     <img src="https://img.shields.io/badge/agents-8%20specialized-orange" alt="Agents">
-    <img src="https://img.shields.io/badge/skills-31%20attack%20methodologies-red" alt="Skills">
+    <img src="https://img.shields.io/badge/skills-38%20attack%20methodologies-red" alt="Skills">
     <img src="https://img.shields.io/badge/references-79%20files-green" alt="References">
   </p>
 </p>
 
 ---
 
-An autonomous red team simulation agent that works with **Claude Code**, **OpenCode**, and **Codex**. It transforms any workspace into a full penetration testing environment for CTF/lab targets — featuring **8 AI agents**, **containerized Kali tools**, a **streaming case collection pipeline**, and **79 security reference files**.
+An autonomous red team simulation agent that works with **Claude Code**, **OpenCode**, and **Codex**. It transforms any workspace into a full penetration testing environment for CTF/lab targets — featuring **9 AI agents**, **containerized Kali tools**, a **streaming case collection pipeline**, and **79 security reference files**. It covers both **web applications** and **TCP/UDP services** (SMB, databases, mail/DNS, remote access, LDAP/Kerberos, SNMP/FTP/NFS).
 
 ## Demo
 
@@ -31,7 +31,7 @@ An autonomous red team simulation agent that works with **Claude Code**, **OpenC
 - **Autonomous workflow** — 5-phase methodology (Recon → Collect → Test → Exploit+OSINT → Report) runs with minimal user interaction; the Test phase is a streaming, stage-based case pipeline with serialized dispatch (one fetch + one subagent task per turn)
 - **Orchestrator GUI** — local web UI for projects, live runs, artifacts, timelines, and terminal run metadata
 - **Intelligence collection** — `intel.md` accumulates tech stack, people, domains, credentials from recon through exploitation; OSINT agent enriches with CVE, breach, DNS history, and social data
-- **8 specialized agents** — operator, recon-specialist, source-analyzer, vulnerability-analyst, exploit-developer, fuzzer, osint-analyst, report-writer
+- **9 specialized agents** — operator, recon-specialist, network-analyst, source-analyzer, vulnerability-analyst, exploit-developer, fuzzer, osint-analyst, report-writer
 - **Containerized tools** — all pentest tools run in Docker (Kali toolbox, mitmproxy, Katana, optional Metasploit RPC for OpenCode), zero local installation
 - **Case collection pipeline** — SQLite-backed queue with 4 producers, automatic type classification, zero-token dispatcher, atomic fetch-dispatch pairing
 - **79 reference files** — OWASP Top 10:2025, API Security 2023, offensive tactics, AD/Kerberos attacks
@@ -42,7 +42,7 @@ An autonomous red team simulation agent that works with **Claude Code**, **OpenC
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) (with Docker Compose)
+- [Docker](https://docs.docker.com/get-docker/) (with Docker Compose) — **not required** for the bare-metal Kali runtime
 - At least one AI CLI tool if you are not using the Docker all-in-one runtime:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
   - [OpenCode](https://opencode.ai) (`npm install -g opencode-ai`)
@@ -57,6 +57,37 @@ An autonomous red team simulation agent that works with **Claude Code**, **OpenC
 ```
 
 ## Usage by CLI
+
+### Bare-metal Kali (no Docker)
+
+Run the full agent directly on a host Kali install using the `local` runtime.
+
+**Install**
+
+```bash
+./install.sh kali ~/redteam-agent          # sets REDTEAM_RUNTIME_MODE=local
+./install.sh kali ~/redteam-agent --install # + auto-install missing tools
+```
+
+**Verify tools**
+
+```bash
+cd ~/redteam-agent
+./scripts/check_local_tools.sh --install
+```
+
+**Start / Run**
+
+```bash
+cd ~/redteam-agent
+opencode
+/engage http://your-ctf-target:8080
+```
+
+**Notes**
+- On Kali, `install.sh` auto-selects `local` mode for `opencode`/`claude`/`codex` unless you export `REDTEAM_RUNTIME_MODE`; the `docker` product always stays in Docker mode.
+- `run_tool`, mitmproxy, Katana, and the Metasploit MCP all run host binaries instead of containers.
+- Full guide: [`docs/baremetal-kali.md`](docs/baremetal-kali.md).
 
 ### Docker (Recommended)
 
@@ -282,7 +313,7 @@ Phase 5: REPORT ── report-writer with coverage statistics + intelligence sum
 
 ## Architecture
 
-### 8 Agents
+### 9 Agents
 
 ```
                     ┌─────────────────────────┐
@@ -306,6 +337,9 @@ specialist     analyzer   │ analyst│  │             writer
                             OSINT intel → exploit
 ```
 
+`network-analyst` runs alongside the web consumers: it picks up `type=service` cases
+(TCP/UDP) at stage `ingested` and hands confirmed primitives to `exploit-developer`.
+
 ### Case Pipeline
 
 ```
@@ -314,11 +348,17 @@ Producers              Queue (SQLite)         Consumers
 │ mitmproxy │─┐   ┌──────────┐  ┌────────┐  ┌─ vuln-analyst (api/form)
 │ Katana    │─┼──→│ cases.db │─→│dispatch│──┼─ source-analyzer (js/css)
 │ recon     │─┤   └──────────┘  │ (.sh)  │  ├─ fuzzer (deep params)
-│ spec      │─┘   dedup+state   └────────┘  └─ exploit-dev (confirmed)
-└──────────┘      15 types       0 tokens      ▲
+│ spec      │─┤   dedup+state   └────────┘  ├─ exploit-dev (confirmed)
+│ net_ingest│─┘   16 types       0 tokens   └─ network-analyst (service)
+└──────────┘                                   ▲
      ▲                                         │
-     └──────────── new endpoints ──────────────┘
+     └──────────── new endpoints/services ─────┘
 ```
+
+`network-analyst` handles TCP/UDP service cases (`type=service`, produced by
+`net_ingest.sh` from nmap output). Network engagements (`/engage 10.0.0.0/24`) skip
+Katana/mitmproxy entirely; see [`docs/baremetal-kali.md`](docs/baremetal-kali.md) for the
+runtime and the service skills under `agent/skills/`.
 
 ### Directory Structure
 
@@ -342,8 +382,9 @@ RedteamOpencode/                ← dev workspace (git root)
 │   │   ├── install-time generators ← install.sh builds .claude/agents + .codex/agents + .claude/commands
 │   │   ├── dispatcher.sh       ← case queue management
 │   │   └── ...                 ← ingest, hooks, shared libraries
-│   ├── skills/                 ← 31 attack methodology skills
+│   ├── skills/                 ← 38 attack methodology skills (web + TCP/UDP services)
 │   ├── references/             ← 79 reference files (OWASP, tools, tactics, AD)
+│   ├── labs/                   ← lab profiles (generic, juice-shop, dvwa, webgoat, ...)
 │   ├── docker/                 ← Dockerfiles + docker-compose.yml
 │   └── engagements/            ← per-engagement output (created at runtime)
 │

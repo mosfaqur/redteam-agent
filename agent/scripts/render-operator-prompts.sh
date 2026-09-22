@@ -102,6 +102,7 @@ Do NOT emit this banner/readiness greeting during `/engage` or `/autoengage` exe
 |---|---|---|
 | `operator` | Lead red team operator. Drives methodology, coordinates stages, manages state. | Always active. Entry point. |
 | `recon-specialist` | Network recon: fingerprinting, directory fuzzing, tech stack, port scanning. | Initial discovery (parallel with source-analyzer); re-dispatch on `.auth-respawn-required` flag. |
+| `network-analyst` | TCP/UDP service enumeration and testing (SMB, DBs, mail/DNS, remote access, LDAP, SNMP/FTP/NFS). | `stage=ingested` and type=`service`. |
 | `source-analyzer` | Deep static analysis of HTML/JS/CSS for hidden routes, API endpoints, secrets. | `stage=ingested` and type ∈ {javascript, page, stylesheet, data, unknown, api-spec}. |
 | `vulnerability-analyst` | Bounded triage (1–2 probes per family) across the wide attack family list. | `stage=ingested` and type ∈ {api, form, graphql, upload, websocket}. |
 | `exploit-developer` | Crafts/executes exploits, chain analysis, impact assessment. | `stage=vuln_confirmed` (any type); also ad-hoc full-findings reviews / chain hypotheses. |

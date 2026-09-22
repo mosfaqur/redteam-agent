@@ -18,16 +18,18 @@
 set -e
 
 show_help() {
-  echo "Usage: $0 [--dry-run] [--force] <opencode|claude|codex|docker> [target_dir]"
+  echo "Usage: $0 [--dry-run] [--force] [--install] <opencode|claude|codex|kali|docker> [target_dir]"
   echo ""
   echo "  opencode  — Install for OpenCode (source files, no build needed)"
   echo "  claude    — Install for Claude Code (generates .claude/agents + commands)"
   echo "  codex     — Install for Codex (generates .codex/agents)"
+  echo "  kali      — Bare-metal Kali Linux (OpenCode files + local runtime, no Docker)"
   echo "  docker    — Install the all-in-one Docker runtime with generated run.sh"
   echo ""
   echo "Options:"
   echo "  --dry-run    Validate install steps without writing files"
   echo "  --force      Force rebuild of product-related Docker images"
+  echo "  --install    Install missing host pentest tools (kali / local runtime)"
   echo "  -h, --help   Show this help and exit"
   echo ""
   echo "  Supported platforms: macOS, Linux"
@@ -41,6 +43,7 @@ show_help() {
 # ============================================
 DRY_RUN=false
 FORCE_REBUILD=false
+INSTALL_TOOLS=false
 PRODUCT=""
 TARGET_DIR=""
 SKIP_PREREQ_CHECKS="${REDTEAM_SKIP_PREREQ_CHECKS:-0}"
@@ -50,8 +53,9 @@ for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
     --force) FORCE_REBUILD=true ;;
+    --install) INSTALL_TOOLS=true ;;
     -h|--help) show_help; exit 0 ;;
-    opencode|claude|codex|docker) PRODUCT="$arg" ;;
+    opencode|claude|codex|kali|docker) PRODUCT="$arg" ;;
     *) [ -z "$TARGET_DIR" ] && TARGET_DIR="$arg" ;;
   esac
 done
@@ -64,6 +68,29 @@ fi
 REPO_URL="https://github.com/NeoTheCapt/RedteamAgent.git"
 INSTALL_DIR="${TARGET_DIR:-${REDTEAM_DIR:-$HOME/redteam-agent}}"
 REPO_ROOT=""
+
+# ============================================
+# Runtime mode: bare-metal Kali defaults to local (no Docker) unless the user
+# explicitly set REDTEAM_RUNTIME_MODE. The docker product always stays docker.
+# ============================================
+detect_kali() {
+  [ -r /etc/os-release ] || return 1
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  case "${ID:-} ${ID_LIKE:-} ${PRETTY_NAME:-}" in
+    *kali*|*Kali*) return 0 ;;
+  esac
+  return 1
+}
+
+IS_KALI=0
+detect_kali && IS_KALI=1
+LOCAL_RUNTIME=0
+if [ "$PRODUCT" = "kali" ]; then
+  LOCAL_RUNTIME=1
+elif [ "$PRODUCT" != "docker" ] && [ "$IS_KALI" = "1" ] && [ -z "${REDTEAM_RUNTIME_MODE:-}" ]; then
+  LOCAL_RUNTIME=1
+fi
 
 echo ""
 if $DRY_RUN; then
@@ -127,7 +154,8 @@ echo ""
 if [ "$SKIP_PREREQ_CHECKS" = "1" ]; then
     warn "Skipping prerequisite checks (REDTEAM_SKIP_PREREQ_CHECKS=1)"
 else
-# Docker
+# Docker (not required for the bare-metal/local runtime)
+if [ "$LOCAL_RUNTIME" != "1" ]; then
 if command -v docker >/dev/null 2>&1; then
     ok "Docker: $(docker --version 2>&1 | head -1)"
 else
@@ -141,10 +169,13 @@ else
     fail "Docker daemon is not running"
     ERRORS=$((ERRORS + 1))
 fi
+else
+    ok "Local runtime mode (no Docker required) — REDTEAM_RUNTIME_MODE=local"
+fi
 
 # Product-specific CLI check
 case "$PRODUCT" in
-  opencode)
+  opencode|kali)
     if command -v opencode >/dev/null 2>&1; then
         ok "OpenCode: $(opencode --version 2>&1 | head -1)"
     else
@@ -180,6 +211,16 @@ if [ "$PRODUCT" != "docker" ]; then
       ERRORS=$((ERRORS + 1))
     fi
   done
+fi
+
+# Host pentest toolchain (bare-metal / local runtime)
+if [ "$LOCAL_RUNTIME" = "1" ] && [ -x "$SOURCE_DIR/scripts/check_local_tools.sh" ]; then
+  echo ""
+  if [ "$INSTALL_TOOLS" = "true" ]; then
+    "$SOURCE_DIR/scripts/check_local_tools.sh" --install || ERRORS=$((ERRORS + 1))
+  else
+    "$SOURCE_DIR/scripts/check_local_tools.sh" || warn "Some host tools are missing; re-run with --install to install them"
+  fi
 fi
 
 echo ""
@@ -257,6 +298,18 @@ render_operator_prompts() {
   "$SOURCE_DIR/scripts/render-operator-prompts.sh" "$mode" "$out_dir"
 }
 
+# Set or replace KEY=VALUE in an env file (append if absent).
+set_env_var() {
+  local file="$1" key="$2" value="$3" tmp
+  [ -f "$file" ] || : > "$file"
+  if grep -qE "^${key}=" "$file"; then
+    tmp="$(mktemp)"
+    awk -v k="$key" -v v="$value" 'BEGIN{FS=OFS="="} $1==k {print k"="v; next} {print}' "$file" > "$tmp" && mv "$tmp" "$file"
+  else
+    printf '%s=%s\n' "$key" "$value" >> "$file"
+  fi
+}
+
 if $DRY_RUN; then
     info "[DRY RUN] Would install to $INSTALL_DIR"
     # Validate sources
@@ -267,7 +320,7 @@ else
     mkdir -p "$INSTALL_DIR"
 
     # --- Detect upgrade: clean old installation, preserve engagements ---
-    if [ -d "$INSTALL_DIR/skills" ] || [ -d "$INSTALL_DIR/.opencode" ] || [ -d "$INSTALL_DIR/.claude" ] || [ -d "$INSTALL_DIR/.codex" ] || [ -d "$INSTALL_DIR/agent" ] || [ -f "$INSTALL_DIR/run.sh" ]; then
+    if [ -d "$INSTALL_DIR/skills" ] || [ -d "$INSTALL_DIR/labs" ] || [ -d "$INSTALL_DIR/.opencode" ] || [ -d "$INSTALL_DIR/.claude" ] || [ -d "$INSTALL_DIR/.codex" ] || [ -d "$INSTALL_DIR/agent" ] || [ -f "$INSTALL_DIR/run.sh" ]; then
         warn "Existing installation detected in $INSTALL_DIR — upgrading"
         # Preserve engagement data and .env (user config)
         for keep in engagements .env auth.json workspace opencode-home opencode-config opencode-state; do
@@ -276,7 +329,7 @@ else
         # Remove old files
         rm -rf "$INSTALL_DIR/.opencode" "$INSTALL_DIR/.claude" "$INSTALL_DIR/.codex" \
                "$INSTALL_DIR/skills" "$INSTALL_DIR/references" "$INSTALL_DIR/scripts" \
-               "$INSTALL_DIR/docker" "$INSTALL_DIR/CLAUDE.md" "$INSTALL_DIR/AGENTS.md" \
+               "$INSTALL_DIR/docker" "$INSTALL_DIR/labs" "$INSTALL_DIR/CLAUDE.md" "$INSTALL_DIR/AGENTS.md" \
                "$INSTALL_DIR/.env.example" "$INSTALL_DIR/agent" "$INSTALL_DIR/run.sh" \
                "$INSTALL_DIR/install.sh"
         # Restore preserved data
@@ -288,13 +341,13 @@ else
 
     # --- Product-specific files ---
     case "$PRODUCT" in
-      opencode)
+      opencode|kali)
         info "Copying shared files..."
-        for dir in skills references scripts docker; do
+        for dir in skills references scripts docker labs; do
           [ -d "$SOURCE_DIR/$dir" ] && cp -a "$SOURCE_DIR/$dir" "$INSTALL_DIR/"
         done
         mkdir -p "$INSTALL_DIR/engagements"
-        ok "Shared files (skills, references, scripts, docker)"
+        ok "Shared files (skills, references, scripts, docker, labs)"
         if [ -f "$SOURCE_DIR/.env.example" ]; then
             if [ -f "$INSTALL_DIR/.env" ]; then
                 ok ".env preserved"
@@ -305,18 +358,19 @@ else
         fi
         info "Installing OpenCode files..."
         cp -a "$SOURCE_DIR/.opencode" "$INSTALL_DIR/"
-        bash "$INSTALL_DIR/scripts/install_metasploit_mcp.sh" "$INSTALL_DIR"
+        bash "$INSTALL_DIR/scripts/install_metasploit_mcp.sh" "$INSTALL_DIR" \
+            || warn "Metasploit MCP runtime install failed; re-run scripts/install_metasploit_mcp.sh later"
         ok "OpenCode config (.opencode/)"
         # NO .claude/, NO .codex/, NO CLAUDE.md, NO AGENTS.md
         ;;
 
       claude)
         info "Copying shared files..."
-        for dir in skills references scripts docker; do
+        for dir in skills references scripts docker labs; do
           [ -d "$SOURCE_DIR/$dir" ] && cp -a "$SOURCE_DIR/$dir" "$INSTALL_DIR/"
         done
         mkdir -p "$INSTALL_DIR/engagements"
-        ok "Shared files (skills, references, scripts, docker)"
+        ok "Shared files (skills, references, scripts, docker, labs)"
         if [ -f "$SOURCE_DIR/.env.example" ]; then
             if [ -f "$INSTALL_DIR/.env" ]; then
                 ok ".env preserved"
@@ -346,11 +400,11 @@ else
 
       codex)
         info "Copying shared files..."
-        for dir in skills references scripts docker; do
+        for dir in skills references scripts docker labs; do
           [ -d "$SOURCE_DIR/$dir" ] && cp -a "$SOURCE_DIR/$dir" "$INSTALL_DIR/"
         done
         mkdir -p "$INSTALL_DIR/engagements"
-        ok "Shared files (skills, references, scripts, docker)"
+        ok "Shared files (skills, references, scripts, docker, labs)"
         if [ -f "$SOURCE_DIR/.env.example" ]; then
             if [ -f "$INSTALL_DIR/.env" ]; then
                 ok ".env preserved"
@@ -398,6 +452,21 @@ else
         ;;
     esac
 
+    # Bare-metal/local runtime: force local mode in .env (unless the user
+    # explicitly exported REDTEAM_RUNTIME_MODE) and autodetect host tool paths.
+    if [ "$LOCAL_RUNTIME" = "1" ] && [ -f "$INSTALL_DIR/.env" ]; then
+        if [ -n "${REDTEAM_RUNTIME_MODE:-}" ]; then
+            set_env_var "$INSTALL_DIR/.env" REDTEAM_RUNTIME_MODE "$REDTEAM_RUNTIME_MODE"
+        else
+            set_env_var "$INSTALL_DIR/.env" REDTEAM_RUNTIME_MODE "local"
+        fi
+        _katana_bin="$(command -v katana 2>/dev/null || true)"
+        [ -n "$_katana_bin" ] && set_env_var "$INSTALL_DIR/.env" KATANA_LOCAL_BIN "$_katana_bin"
+        _chrome_bin="$(command -v chromium 2>/dev/null || command -v chromium-browser 2>/dev/null || true)"
+        [ -n "$_chrome_bin" ] && set_env_var "$INSTALL_DIR/.env" KATANA_CHROME_BIN "$_chrome_bin"
+        ok "Runtime set to local (bare-metal) in .env"
+    fi
+
     # Set permissions
     if [ -d "$INSTALL_DIR/scripts" ]; then
         chmod +x "$INSTALL_DIR/scripts/"*.sh "$INSTALL_DIR/scripts/lib/"*.sh "$INSTALL_DIR/scripts/hooks/"*.sh 2>/dev/null || true
@@ -416,6 +485,8 @@ $DRY_RUN || cd "$INSTALL_DIR"
 
 if $DRY_RUN; then
     info "[DRY RUN] Would build Docker images if missing — skipping"
+elif [ "$LOCAL_RUNTIME" = "1" ]; then
+    info "Local runtime — skipping Docker image build/verification"
 elif [ "$SKIP_DOCKER_IMAGE_CHECKS" = "1" ]; then
     warn "Skipping Docker image build/verification (REDTEAM_SKIP_DOCKER_IMAGE_CHECKS=1)"
 else
@@ -539,6 +610,16 @@ else
             fail "redteam-allinone runtime verification failed"
             exit 1
         fi
+    elif [ "$LOCAL_RUNTIME" = "1" ]; then
+        source scripts/lib/container.sh 2>/dev/null
+        mkdir -p /tmp/redteam-test
+        export ENGAGEMENT_DIR="/tmp/redteam-test"
+        if run_tool echo "ok" >/dev/null 2>&1; then
+            ok "run_tool: local host execution works"
+        else
+            fail "run_tool failed"; ERRORS=$((ERRORS + 1))
+        fi
+        rm -rf /tmp/redteam-test
     else
         source scripts/lib/container.sh 2>/dev/null
         if check_images; then
@@ -590,6 +671,14 @@ case "$PRODUCT" in
     echo "    cd $INSTALL_DIR && opencode"
     echo "    /engage http://your-ctf-target:port"
     ;;
+  kali)
+    echo "  Start:"
+    echo "    cd $INSTALL_DIR && opencode"
+    echo "    /engage http://your-ctf-target:port"
+    echo ""
+    echo "  Runtime: local (bare-metal, no Docker). Verify tools anytime with:"
+    echo "    $INSTALL_DIR/scripts/check_local_tools.sh"
+    ;;
   claude)
     echo "  Start:"
     echo "    cd $INSTALL_DIR && claude"
@@ -611,9 +700,10 @@ echo ""
 # Show installed file summary
 echo "  Files installed:"
 case "$PRODUCT" in
-  opencode) echo "    .opencode/  skills/  references/  scripts/  docker/" ;;
-  claude)   echo "    .claude/    skills/  references/  scripts/  docker/  CLAUDE.md" ;;
-  codex)    echo "    .codex/     skills/  references/  scripts/  docker/  AGENTS.md" ;;
+  opencode) echo "    .opencode/  skills/  references/  scripts/  labs/  docker/" ;;
+  kali)     echo "    .opencode/  skills/  references/  scripts/  labs/  (local runtime)" ;;
+  claude)   echo "    .claude/    skills/  references/  scripts/  labs/  docker/  CLAUDE.md" ;;
+  codex)    echo "    .codex/     skills/  references/  scripts/  labs/  docker/  AGENTS.md" ;;
   docker)   echo "    agent/  run.sh  .env  workspace/  opencode-home/  opencode-config/  opencode-state/" ;;
 esac
 echo ""

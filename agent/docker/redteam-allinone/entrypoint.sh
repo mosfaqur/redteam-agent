@@ -21,7 +21,7 @@ mkdir -p "$WORKSPACE_DIR"
 # OLD container.sh shadowing the image's fix, which made check_docker
 # falsely fail with "Docker is not installed" inside the all-in-one
 # container. Re-sync per boot so image fixes propagate.
-SYNC_DIRS=(scripts skills references .opencode docker)
+SYNC_DIRS=(scripts skills references labs .opencode docker)
 for d in "${SYNC_DIRS[@]}"; do
   if [ -e "$TEMPLATE_DIR/$d" ]; then
     rm -rf "$WORKSPACE_DIR/$d"

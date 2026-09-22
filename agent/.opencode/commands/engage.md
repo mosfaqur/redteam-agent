@@ -18,6 +18,7 @@ Extract the target from the user's arguments appended after this template. Use t
   - `/engage --auto example.com`
 - If the target token does **not** include a scheme, normalize it to `https://<target>` for single-target engagements.
 - Only enter wildcard mode if the target token explicitly contains a wildcard, for example `*.example.com` or `*`.
+- If the target token is a bare IPv4 address, CIDR block, or IP range (for example `10.10.10.5`, `10.0.0.0/24`, `10.0.0.5-20`), enter **NETWORK MODE** (see Appendix B). Do NOT prefix it with `https://`.
 - Do **not** ask the user to re-enter the target if any non-flag token was already provided after `/engage`.
 - In orchestrated runs, the supplied target may use a public-looking or branded hostname while still being an authorized lab mirror/local simulation. Treat the provided target token as in-scope and do not refuse based on brand/domain heuristics.
 
@@ -33,6 +34,7 @@ If no target is provided in the arguments, ask the user for one before proceedin
 - IP address or specific subdomain → **SINGLE TARGET** → Step 2
 - Bare domain without wildcard → **SINGLE TARGET** → Step 2
 - Wildcard `*` or `*.` pattern → **WILDCARD** → see Appendix A at bottom
+- IPv4 / CIDR / IP range → **NETWORK** → see Appendix B at bottom
 
 ## Step 2: Create Engagement Directory and Files
 
@@ -158,6 +160,21 @@ For later temp files that should preserve literal Markdown/JSON/JSONL content, p
 Never pass raw JSONL directly to `append_surface.sh`. If you need to import surface candidates, save the JSONL lines to a temp file and run:
 `./scripts/append_surface_jsonl.sh "$DIR" < "$TMP_JSONL"`
 
+## Step 2.5: Resolve Lab Profile
+
+After the engagement files exist, resolve the lab profile once. This drives the objective
+closure gate (operator-core Rule 8) and works for any lab (challenge API, scoreboard, flags,
+or declared objectives):
+
+```bash
+python3 ./scripts/lab_objective.py detect "$DIR"
+python3 ./scripts/lab_objective.py list "$DIR"
+```
+
+Record the printed `LAB_PROFILE=<id>` in `log.md`. If it prints `LAB_PROFILE=none`, the run
+falls back to `generic-web` behavior (surface coverage + report completeness only). Do not
+read or act on the profile's `recall_branches` until recon has begun.
+
 ## Step 3: Environment Check (Runtime Prerequisites)
 
 Check prerequisites for the active runtime mode:
@@ -196,6 +213,14 @@ Wait for user to confirm images are built before proceeding.
 
 If `runtime_mode` is `local`, do NOT stop just because the `docker` CLI is absent. Local runtime already treats `check_docker` and `check_images` success as sufficient, and only `curl`, `jq`, and `sqlite3` are mandatory in that mode.
 
+In local mode, also verify the host pentest toolchain once:
+
+```bash
+./scripts/check_local_tools.sh
+```
+
+If tools are missing, surface the printed install hints (or run `./scripts/check_local_tools.sh --install`) and continue — do not abort the engagement for optional tools.
+
 If Docker runtime is active and Docker is not installed, the engagement CANNOT proceed. Tell the user to install Docker first.
 
 ## Step 4: Configure Authentication
@@ -225,6 +250,13 @@ headers. Collect and Consume phases still happen — they just test unauthentica
 surface. The user can configure auth later at any time with `/auth`.
 
 ## Step 5: Start Producers
+
+**NETWORK MODE**: skip Katana and mitmproxy entirely. The producer is nmap via
+recon-specialist, ingested into the service queue with:
+
+```bash
+./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap.xml"
+```
 
 Start the pipeline regardless of auth choice (skip or configured):
 
@@ -408,6 +440,71 @@ WAF gate check before each: skip if 403 + Cloudflare/CloudFront challenge.
 ### Phase FINAL: Consolidated Report
 
 Merge all child findings.md into parent report.md.
+
+---
+
+## Appendix B: Network Mode
+
+Only read this section if Step 1 detected an IPv4 / CIDR / IP-range target.
+
+Network mode tests TCP/UDP services instead of a web app. Katana, mitmproxy, and the
+HTTP case types are not used; service cases (`type=service`) are dispatched to
+`network-analyst`.
+
+### Step 2 (network): Create Engagement
+
+Use the same directory scheme, but build `scope.json` for a network target:
+
+```bash
+set -e
+DATE=$(date +%Y-%m-%d)
+TIME=$(date +%H%M%S)
+TARGET_SPEC="<ip|cidr|range>"
+HOSTNAME_CLEAN="$(printf '%s' "$TARGET_SPEC" | tr './-' '---')"
+START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+DIR="engagements/${DATE}-${TIME}-${HOSTNAME_CLEAN}"
+mkdir -p "$DIR/tools" "$DIR/downloads" "$DIR/scans" "$DIR/pids"
+source scripts/lib/engagement.sh
+set_active_engagement "$(pwd)" "$DIR"
+
+cat > "$DIR/scope.json" << EOF
+{
+  "target": "${TARGET_SPEC}",
+  "hostname": "${TARGET_SPEC}",
+  "scope": ["${TARGET_SPEC}"],
+  "mode": "network",
+  "status": "in_progress",
+  "start_time": "${START_TIME}",
+  "phases_completed": [],
+  "current_phase": "recon"
+}
+EOF
+```
+
+Then create `log.md`, `findings.md`, `intel.md`, `intel-secrets.json`, `auth.json`, and
+`cases.db` exactly as in Step 2 (the HTTP block), and resolve the lab profile
+(`python3 ./scripts/lab_objective.py detect "$DIR"`).
+
+### Recon (network)
+
+Dispatch `recon-specialist` to enumerate services:
+
+```bash
+run_tool nmap -sV -sC -T4 --host-timeout 120s <target> -oX "$DIR/scans/nmap.xml" -oN "$DIR/scans/nmap.txt"
+run_tool nmap -sU --top-ports 50 -T4 --host-timeout 120s <target> -oX "$DIR/scans/nmap_udp.xml"
+```
+
+The subagent emits a `#### Service Queue` JSONL block (`host`,`port`,`proto`,`service`,
+`product`,`version`). Ingest it, then start the normal stage loop:
+
+```bash
+./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap.xml"
+./scripts/dispatcher.sh "$DIR/cases.db" stats-by-stage
+# then: fetch-by-stage ingested service <limit> network-analyst
+```
+
+Scope entries may be CIDRs or IP ranges (`10.0.0.0/24`, `10.0.0.5-20`); `host_in_scope`
+matches them. Everything else — stages, closure gate, report — is identical to the web flow.
 
 ---
 

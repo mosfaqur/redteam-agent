@@ -1,0 +1,94 @@
+{
+  "id": "webgoat",
+  "display_name": "OWASP WebGoat",
+  "kind": "web-app",
+  "priority": 80,
+  "match": {
+    "always": false,
+    "hosts": ["webgoat"],
+    "ports": [8080, 8888],
+    "path_probes": [
+      {"path": "/WebGoat/login", "contains": "WebGoat"},
+      {"path": "/WebGoat/", "contains": "WebGoat"}
+    ]
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "HTTP Basics",
+      "HTTP Proxies",
+      "CIA Triad",
+      "Injection (SQL)",
+      "Injection (Advanced)",
+      "Authentication Bypasses",
+      "JWT tokens",
+      "IDOR",
+      "Missing Function Level Access Control",
+      "Cross Site Scripting (XSS)",
+      "Cross Site Request Forgery (CSRF)",
+      "Path Traversal",
+      "XXE",
+      "Insecure Deserialization",
+      "Vulnerable Components",
+      "Server-Side Request Forgery",
+      "SQL Injection (Mitigation)",
+      "Password Reset",
+      "Access Control Flaws"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "Injection (SQL)",
+      "vuln_class": "sqli",
+      "route": "/WebGoat/SqlInjection/assignment5a",
+      "trigger": "complete the lesson's injection objective and record the returned rows/flag"
+    },
+    {
+      "objective": "JWT tokens",
+      "vuln_class": "jwt",
+      "route": "/WebGoat/JWT",
+      "trigger": "forge/alter a JWT (alg:none or key confusion) and reach the privileged action; preserve the token and response"
+    },
+    {
+      "objective": "Cross Site Scripting (XSS)",
+      "vuln_class": "xss",
+      "route": "/WebGoat/CrossSiteScripting",
+      "trigger": "deliver the lesson's script payload and confirm execution/objective completion"
+    },
+    {
+      "objective": "Insecure Deserialization",
+      "vuln_class": "deserialization",
+      "route": "/WebGoat/InsecureDeserialization",
+      "trigger": "craft and submit the serialized payload; preserve the command output or objective-complete response"
+    },
+    {
+      "objective": "XXE",
+      "vuln_class": "xxe",
+      "route": "/WebGoat/XXE",
+      "trigger": "submit the XXE payload and preserve the exfiltrated file content"
+    },
+    {
+      "objective": "IDOR",
+      "vuln_class": "broken-access-control",
+      "route": "/WebGoat/IDOR",
+      "trigger": "access another user's object by changing the identifier and preserve the response"
+    },
+    {
+      "objective": "Path Traversal",
+      "vuln_class": "directory-traversal",
+      "route": "/WebGoat/PathTraversal",
+      "trigger": "retrieve a file outside the intended directory and preserve the content"
+    },
+    {
+      "objective": "Missing Function Level Access Control",
+      "vuln_class": "broken-access-control",
+      "route": "/WebGoat/AccessControl",
+      "trigger": "reach an admin-only function as a normal user and preserve the response"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "id": "metasploitable",
+  "display_name": "Metasploitable 2",
+  "kind": "network",
+  "priority": 85,
+  "match": {
+    "always": false,
+    "hosts": ["metasploitable", "metasploitable2", "msf2"],
+    "ports": [21, 22, 23, 80, 139, 445, 3306, 5432, 5900],
+    "path_probes": [
+      {"path": "/mutillidae/", "contains": "Mutillidae"},
+      {"path": "/dvwa/", "contains": "DVWA"}
+    ]
+  },
+  "objective": {
+    "type": "declared",
+    "discover": false,
+    "source": {"url": "", "parser": "none"},
+    "candidates": [],
+    "id_field": "name",
+    "solved_field": "solved",
+    "checklist": [
+      "vsftpd 2.3.4 backdoor (21)",
+      "UnrealIRCd backdoor (6667)",
+      "Samba smbd usermap_script (139/445)",
+      "distccd RCE (3632)",
+      "Tomcat manager default creds (8180)",
+      "MySQL root no-password (3306)",
+      "PostgreSQL default creds (5432)",
+      "VNC no-auth (5900)",
+      "NFS no_root_squash (2049)",
+      "Shellshock via CGI (80)",
+      "PHPMyAdmin default creds (80)",
+      "Telnet default creds (23)"
+    ]
+  },
+  "recall_branches": [
+    {
+      "objective": "vsftpd 2.3.4 backdoor (21)",
+      "vuln_class": "backdoor",
+      "route": "21/tcp",
+      "trigger": "connect to FTP and trigger the smiley-face backdoor; confirm a shell on port 6200, then hand to exploit-developer"
+    },
+    {
+      "objective": "UnrealIRCd backdoor (6667)",
+      "vuln_class": "backdoor",
+      "route": "6667/tcp",
+      "trigger": "send the AB; payload to IRC and confirm command execution"
+    },
+    {
+      "objective": "Samba smbd usermap_script (139/445)",
+      "vuln_class": "rce",
+      "route": "139/445/tcp",
+      "trigger": "run the usermap_script exploit and confirm command execution"
+    },
+    {
+      "objective": "distccd RCE (3632)",
+      "vuln_class": "rce",
+      "route": "3632/tcp",
+      "trigger": "run the distccd_exec exploit and confirm command execution"
+    },
+    {
+      "objective": "Tomcat manager default creds (8180)",
+      "vuln_class": "default-credentials",
+      "route": "8180/tcp",
+      "trigger": "log in to /manager/html with tomcat:tomcat and deploy a WAR to confirm RCE"
+    },
+    {
+      "objective": "MySQL root no-password (3306)",
+      "vuln_class": "default-credentials",
+      "route": "3306/tcp",
+      "trigger": "connect as root with no password and confirm data access"
+    },
+    {
+      "objective": "PostgreSQL default creds (5432)",
+      "vuln_class": "default-credentials",
+      "route": "5432/tcp",
+      "trigger": "connect as postgres:postgres and confirm data access"
+    },
+    {
+      "objective": "VNC no-auth (5900)",
+      "vuln_class": "auth",
+      "route": "5900/tcp",
+      "trigger": "connect with no authentication and confirm desktop access"
+    },
+    {
+      "objective": "NFS no_root_squash (2049)",
+      "vuln_class": "misconfiguration",
+      "route": "2049/tcp",
+      "trigger": "showmount -e, mount the export, and confirm root-squash bypass"
+    },
+    {
+      "objective": "Shellshock via CGI (80)",
+      "vuln_class": "rce",
+      "route": "80/tcp",
+      "trigger": "send the Shellshock payload to a CGI path and confirm command execution"
+    }
+  ]
+}
