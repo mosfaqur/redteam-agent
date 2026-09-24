@@ -1,123 +1,174 @@
-# Bare-metal Kali Linux (no Docker)
+# Bare-Metal Kali Linux Runtime Guide
 
-RedTeam Agent can run entirely on a host Kali Linux install. Instead of spinning
-up the `kali-redteam`, `mitmproxy`, and `katana` containers, the `local` runtime
-executes the same tools directly from your `PATH`. This is controlled by one
-variable:
+> **Deploying and running RedTeam Agent natively on Kali Linux hosts without Docker virtualization.**
+
+---
+
+## 1. Overview
+
+While RedTeam Agent defaults to containerized execution to ensure isolation on general macOS and Linux workstations, it includes dedicated native support for **bare-metal Kali Linux**.
+
+In native mode (`REDTEAM_RUNTIME_MODE=local`), all container abstractions are eliminated. Security tools (`nmap`, `ffuf`, `sqlmap`, `katana`, `mitmdump`, `msfrpcd`) are invoked directly from the host system's `PATH`.
+
+### Advantages of Native Execution
+* **Raw Network Access**: Enables low-level socket operations, raw TCP/SYN/UDP packet generation with `nmap`, and direct layer-2 network interface binding without Docker NAT or bridge latency.
+* **Zero Container Overhead**: Eliminates Docker daemon dependencies, CPU virtualization overhead, and volume-mounting disk bottlenecks.
+* **Direct Access to Local Tooling & Wordlists**: Seamlessly leverages Kali's pre-installed SecLists dictionaries (`/usr/share/seclists`), custom scripts, and bleeding-edge Go security binaries.
+
+---
+
+## 2. Quick Installation
+
+From the repository root on your Kali Linux machine:
 
 ```bash
-REDTEAM_RUNTIME_MODE=local   # docker (default off-Kali) | local
-```
-
-## Install
-
-```bash
-# From the repo root:
+# Basic installation (configures local runtime mode)
 ./install.sh kali ~/redteam-agent
 
-# Validate + auto-install any missing host pentest tools:
+# Recommended: Install and auto-provision any missing Kali security packages
 ./install.sh kali ~/redteam-agent --install
 ```
 
-On Kali, `install.sh` also auto-selects `local` mode for the `opencode`, `claude`,
-and `codex` products unless you export `REDTEAM_RUNTIME_MODE` yourself. The
-`docker` product always stays in Docker mode.
+### Automatic Runtime Detection
+When running `install.sh` on a verified Kali Linux installation (`/etc/os-release` matching Kali), the installer **automatically selects `local` mode** for `opencode`, `claude`, and `codex` products unless `REDTEAM_RUNTIME_MODE=docker` is explicitly exported.
 
 The installer:
-1. Copies the agent runtime (OpenCode files, `skills/`, `references/`, `scripts/`, `labs/`).
-2. Writes `REDTEAM_RUNTIME_MODE=local` into `<dir>/.env`.
-3. Autodetects `katana` and `chromium` paths into `.env`.
-4. Runs `scripts/check_local_tools.sh` (installs with `--install`).
+1. Deploys the complete agent runtime (prompts, skills, references, scripts, lab profiles).
+2. Generates a local configuration file (`.env`) with `REDTEAM_RUNTIME_MODE=local`.
+3. Auto-detects local binary paths for `katana`, `chromium`, and `chromedriver`.
+4. Executes [`agent/scripts/check_local_tools.sh`](file:///root/red-team/agent/scripts/check_local_tools.sh) to audit host package dependencies.
 
-## Verify the toolchain
+---
 
-```bash
-./scripts/check_local_tools.sh            # report + install hints
-./scripts/check_local_tools.sh --install  # install missing tools
-```
+## 3. Host Toolchain Requirements
 
-It checks the tools the skills invoke via `run_tool`, plus the crawler/browser
-stack:
+To ensure all 9 agents can execute their specialized capabilities, the host Kali installation requires the following security suites:
 
-| Category | Tools |
-|---|---|
-| Recon | `nmap`, `whatweb`, `nikto`, `dig`, `whois` |
-| Web/fuzzing | `ffuf`, `gobuster`, `dirb`, `wfuzz`, `arjun`, `curl`, `wget` |
-| Exploitation | `sqlmap`, `hydra`, `nc` |
-| ProjectDiscovery | `nuclei`, `subfinder`, `katana` |
-| Crawl/browser | `mitmdump`, `chromium`, `chromedriver` |
-| Post-ex | `msfrpcd` (Metasploit) |
-| Support | `jq`, `sqlite3`, `python3`, `openssl`, `rg`, `git` |
-| Wordlists | `/usr/share/wordlists`, `/usr/share/seclists` |
-
-Manual equivalents (Kali):
-
-```bash
-sudo apt-get update
-sudo apt-get install -y nmap nikto whatweb gobuster ffuf dirb wfuzz sqlmap hydra \
-  netcat-traditional wget curl nuclei subfinder katana arjun mitmproxy chromium \
-  chromium-driver metasploit-framework ripgrep jq sqlite3 python3 openssl dnsutils \
-  whois git seclists wordlists
-
-# ProjectDiscovery tools can also be installed with Go:
-go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install github.com/projectdiscovery/katana/cmd/katana@latest
-```
-
-## How the runtime switches
-
-`scripts/lib/container.sh` branches on `REDTEAM_RUNTIME_MODE`:
-
-| Function | `docker` | `local` |
+| Category | Utilities | Debian / Kali Package Names |
 |---|---|---|
-| `run_tool <bin> …` | `docker run … kali-redteam <bin>` | runs the host binary (or `rtcurl`) |
-| `start_proxy` / `stop_proxy` | proxy container | `mitmdump` directly |
-| `start_katana` / `stop_katana` | katana container | `$KATANA_LOCAL_BIN` directly |
-| `check_docker` / `check_images` | validates Docker + images | no-op success |
-| `check_metasploit_runtime.sh` | `docker compose up metasploit` | starts local `msfrpcd` |
+| **Reconnaissance** | `nmap`, `whatweb`, `nikto`, `dig`, `whois` | `nmap`, `whatweb`, `nikto`, `dnsutils`, `whois` |
+| **Web & Fuzzing** | `ffuf`, `gobuster`, `dirb`, `wfuzz`, `arjun`, `curl`, `wget` | `ffuf`, `gobuster`, `dirb`, `wfuzz`, `arjun`, `curl`, `wget` |
+| **Exploitation** | `sqlmap`, `hydra`, `nc` | `sqlmap`, `hydra`, `netcat-traditional` |
+| **ProjectDiscovery** | `nuclei`, `subfinder`, `katana` | `nuclei`, `subfinder`, `katana` *(or via `go install`)* |
+| **Traffic & Browser** | `mitmdump`, `chromium`, `chromedriver` | `mitmproxy`, `chromium`, `chromium-driver` |
+| **Post-Exploitation**| `msfrpcd` (Metasploit) | `metasploit-framework` |
+| **System & Parsing** | `jq`, `sqlite3`, `python3`, `openssl`, `rg`, `git` | `jq`, `sqlite3`, `python3`, `openssl`, `ripgrep`, `git` |
+| **Dictionaries** | SecLists, rockyou, common wordlists | `seclists`, `wordlists` |
 
-Tool paths are resolved in this order: an explicit `.env` value that exists on
-`PATH` → the first matching binary on `PATH` → the `.env`/default value.
-`container.sh` also loads repo `.env` defaults (non-destructively) so
-`REDTEAM_RUNTIME_MODE=local` takes effect without exporting it in your shell.
+### Manual Dependency Installation
+If you prefer manual package management:
 
-## Metasploit MCP
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  nmap nikto whatweb gobuster ffuf dirb wfuzz sqlmap hydra \
+  netcat-traditional wget curl nuclei subfinder katana arjun \
+  mitmproxy chromium chromium-driver metasploit-framework \
+  ripgrep jq sqlite3 python3 openssl dnsutils whois git \
+  seclists wordlists
+```
 
-The OpenCode `metasploit` MCP server still runs over stdio, but in local mode
-`check_metasploit_runtime.sh` starts a host `msfrpcd` instead of a container:
+#### Installing ProjectDiscovery Tools via Go
+If repository packages are outdated, compile the latest versions directly:
+```bash
+go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install -v github.com/projectdiscovery/katana/cmd/katana@latest
+
+# Ensure Go binaries are in PATH
+export PATH="$HOME/go/bin:$PATH"
+```
+
+---
+
+## 4. Toolchain Verification
+
+RedTeam Agent provides a built-in preflight utility to verify all required dependencies:
+
+```bash
+cd ~/redteam-agent
+
+# Audit tools and report missing packages
+./scripts/check_local_tools.sh
+
+# Automatically install any detected missing packages
+./scripts/check_local_tools.sh --install
+```
+
+---
+
+## 5. Runtime Architecture & Execution Mechanics
+
+Environment switching is managed by [`agent/scripts/lib/container.sh`](file:///root/red-team/agent/scripts/lib/container.sh):
+
+```
+                                  REDTEAM_RUNTIME_MODE
+                                    /              \
+                                   /                \
+                       "docker"   /                  \   "local"
+                                 ▼                    ▼
+                    ┌─────────────────────┐  ┌─────────────────────┐
+                    │ docker run ...      │  │ Host Executable     │
+                    │ kali-redteam <tool> │  │ directly on $PATH   │
+                    └─────────────────────┘  └─────────────────────┘
+```
+
+### Binary Path Resolution Order
+1. An explicit environment variable defined in `.env` (e.g., `KATANA_LOCAL_BIN=/usr/local/bin/katana`).
+2. The first matching executable found on the active system `$PATH`.
+3. Default distribution fallback path (e.g., `/usr/bin/<tool>`).
+
+### Metasploit RPC Integration
+In native mode, [`agent/scripts/check_metasploit_runtime.sh`](file:///root/red-team/agent/scripts/check_metasploit_runtime.sh) starts a background `msfrpcd` service on the host:
 
 ```bash
 msfrpcd -P msf -U msf -a 127.0.0.1 -p 55553 -S
 ```
 
-Kali ships `metasploit-framework`, so no extra setup is required. MCP tools are
-only enabled for the `exploit-developer` subagent.
+The OpenCode Metasploit MCP server communicates with this local instance over stdio. Metasploit MCP tools are strictly restricted to the `exploit-developer` subagent.
 
-## Usage
+---
+
+## 6. Usage & Workflow
+
+Launch your AI assistant directly within the installed directory:
 
 ```bash
 cd ~/redteam-agent
+
+# Launch OpenCode (or claude / codex)
 opencode
-/engage http://your-ctf-target:8080
+
+# Start engagement against target
+/engage http://target-web.local:8080
+
+# Or initiate autonomous infrastructure scan
+/autoengage 10.10.10.0/24
 ```
 
-Everything else (commands, stages, lab profiles, reporting) is identical to the
-Docker runtime.
+All commands, phases, case stages, lab profiles, and report generation operate identically to the Docker runtime.
 
-## Troubleshooting
+---
 
-| Problem | Fix |
-|---|---|
-| `run_tool: command not found` | Tool missing from `PATH`. Run `./scripts/check_local_tools.sh --install`. |
-| Katana can't find Chrome | Set `KATANA_CHROME_BIN` in `.env` (e.g. `/usr/bin/chromium`). |
-| `browser_flow.py` fails | Install `chromium` + `chromium-driver`; optionally set `CHROMEDRIVER_BIN`. |
-| Metasploit MCP unavailable | Ensure `msfrpcd` is installed and port 55553 is free; re-run `scripts/install_metasploit_mcp.sh .`. |
-| OpenCode shows `metasploit MCP error -32000: Connection closed` | The MCP venv has mcp 2.x but the vendored server needs the v1 API. Fix: `~/redteam-agent/.opencode/vendor/metasploitmcp-venv/bin/pip install "mcp<2"`, then restart OpenCode. New installs pin this automatically. |
-| Wrong mode | Check `REDTEAM_RUNTIME_MODE` in `.env`; explicit env vars win over `.env`. |
+## 7. Troubleshooting
 
-## Security note
+| Issue | Root Cause | Solution |
+|---|---|---|
+| `run_tool: command not found` | The requested pentest utility is absent from host `$PATH`. | Run `./scripts/check_local_tools.sh --install` to install missing tools. |
+| `Katana cannot find Chrome` | Headless Chrome binary not resolved. | Add `KATANA_CHROME_BIN=/usr/bin/chromium` to your `.env` file. |
+| `browser_flow.py fails` | Selenium driver missing or mismatched. | Install host driver: `sudo apt-get install chromium-driver` and verify with `which chromedriver`. |
+| `Metasploit MCP error -32000: Connection closed` | Python MCP venv has `mcp>=2.0` installed, incompatible with the vendored server v1 API. | Pin MCP package: `~/.opencode/vendor/metasploitmcp-venv/bin/pip install "mcp<2"`, then restart your CLI. |
+| `msfrpcd port conflict` | Port 55553 is bound by another service. | Kill conflicting processes: `fuser -k 55553/tcp` or configure `MSF_PORT` in `.env`. |
+| `Permission denied (Nmap raw socket)` | UDP or SYN scan requires root privileges. | Either run OpenCode with appropriate network capabilities (`setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap`) or run under `sudo`. |
 
-Local mode runs tools **without container isolation**, as your user (some tools
-may need root). Only run against targets you are authorized to test, and prefer
-the Docker runtime when you want blast-radius isolation.
+---
+
+## 8. Security & Operational Safety
+
+> [!CAUTION]
+> **Host Isolation Warning**
+> 
+> Unlike the Docker runtime, which isolates disk, memory, and network interactions within container sandboxes, the bare-metal Kali runtime executes all security tooling **directly under your host user account**. 
+> 
+> * Exercise caution when testing untrusted exploit scripts or parsing unverified remote data.
+> * Ensure testing is restricted strictly to explicitly authorized IP ranges and hostnames.
+> * If testing targets that may return malicious payloads, utilize the Docker runtime (`./install.sh docker`) to maintain blast-radius isolation.

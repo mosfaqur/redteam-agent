@@ -1,515 +1,350 @@
 <p align="center">
   <h1 align="center">🔴 RedTeam Agent</h1>
   <p align="center">
-    <strong>Autonomous AI-Powered Red Team Simulation Agent</strong>
+    <strong>Autonomous AI-Powered Red Team & Penetration Testing Orchestration Framework</strong>
   </p>
   <p align="center">
-    <a href="#installation">Install</a> · <a href="#quick-start">Quick Start</a> · <a href="#architecture">Architecture</a> · <a href="README.zh.md">中文</a>
+    <a href="#installation">Installation</a> · 
+    <a href="#quick-start">Quick Start</a> · 
+    <a href="#architecture">Architecture</a> · 
+    <a href="#case-collection-pipeline">Pipeline</a> · 
+    <a href="#specialized-agents">Agents</a> · 
+    <a href="#slash-commands">Commands</a> · 
+    <a href="ABOUT.md">About</a>
   </p>
   <p align="center">
     <img src="https://img.shields.io/badge/CLI-Claude%20Code%20|%20OpenCode%20|%20Codex-blue" alt="CLI">
     <img src="https://img.shields.io/badge/platform-macOS%20|%20Linux-blue" alt="Platform">
-    <img src="https://img.shields.io/badge/tools-Docker%20containerized-blue" alt="Docker">
-    <img src="https://img.shields.io/badge/agents-8%20specialized-orange" alt="Agents">
+    <img src="https://img.shields.io/badge/runtimes-Docker%20|%20Bare--metal%20Kali-blue" alt="Runtimes">
+    <img src="https://img.shields.io/badge/agents-9%20specialized-orange" alt="Agents">
     <img src="https://img.shields.io/badge/skills-38%20attack%20methodologies-red" alt="Skills">
     <img src="https://img.shields.io/badge/references-79%20files-green" alt="References">
+    <img src="https://img.shields.io/badge/labs-13%20profiles-purple" alt="Labs">
   </p>
 </p>
 
 ---
 
-An autonomous red team simulation agent that works with **Claude Code**, **OpenCode**, and **Codex**. It transforms any workspace into a full penetration testing environment for CTF/lab targets — featuring **9 AI agents**, **containerized Kali tools**, a **streaming case collection pipeline**, and **79 security reference files**. It covers both **web applications** and **TCP/UDP services** (SMB, databases, mail/DNS, remote access, LDAP/Kerberos, SNMP/FTP/NFS).
+## Overview
 
-**Docs**: [Technical Overview](docs/OVERVIEW.md) · [Bare-metal Kali](docs/baremetal-kali.md) · [Network testing](docs/network-testing.md) · [Subagent lifecycle](docs/subagent-lifecycle.md)
+**RedTeam Agent** is an autonomous offensive security framework that operates directly within developer AI command-line interfaces (**[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, and **[Codex](https://github.com/openai/codex)**). It transforms any workspace into a full-scale cyber operations command center for authorized penetration testing, adversary simulation, and CTF challenges.
 
-## Demo
+By decoupling execution state from LLM conversational memory, RedTeam Agent pairs **9 specialized AI agent roles** with a streaming **SQLite case queue**, **containerized or bare-metal Kali Linux security tooling**, **38 offensive methodology skills**, and **79 curated security references**. It comprehensively addresses both **modern web applications** (APIs, GraphQL, SPAs, WebSockets) and **network infrastructure services** (Active Directory, Kerberos, SMB, databases, remote management).
 
-![RedTeam Agent demo (fast)](docs/redteam-agent-demo-fast.gif)
+### Technical Documentation
+* [About & Philosophy](ABOUT.md) — Motivation, design principles, and comparison matrix
+* [Technical Overview](docs/OVERVIEW.md) — Comprehensive architectural specification and lifecycle mechanics
+* [Bare-Metal Kali Guide](docs/baremetal-kali.md) — Running natively on Kali Linux hosts without Docker
+* [Network Service Testing](docs/network-testing.md) — TCP/UDP service enumeration, parsing, and exploitation
+* [Subagent Lifecycle](docs/subagent-lifecycle.md) — Engineering guidelines for agent triggers, boundaries, and evaluation
 
-![RedTeam Agent GUI screenshot](docs/screenshot-20260429-045700.png)
+---
 
-**Key Features:**
-- **Multi-CLI support** — works with Claude Code, OpenCode, and Codex out of the box
-- **Autonomous workflow** — 5-phase methodology (Recon → Collect → Test → Exploit+OSINT → Report) runs with minimal user interaction; the Test phase is a streaming, stage-based case pipeline with serialized dispatch (one fetch + one subagent task per turn)
-- **Orchestrator GUI** — local web UI for projects, live runs, artifacts, timelines, and terminal run metadata
-- **Intelligence collection** — `intel.md` accumulates tech stack, people, domains, credentials from recon through exploitation; OSINT agent enriches with CVE, breach, DNS history, and social data
-- **9 specialized agents** — operator, recon-specialist, network-analyst, source-analyzer, vulnerability-analyst, exploit-developer, fuzzer, osint-analyst, report-writer
-- **Containerized tools** — all pentest tools run in Docker (Kali toolbox, mitmproxy, Katana, optional Metasploit RPC for OpenCode), zero local installation
-- **Case collection pipeline** — SQLite-backed queue with 4 producers, automatic type classification, zero-token dispatcher, atomic fetch-dispatch pairing
-- **79 reference files** — OWASP Top 10:2025, API Security 2023, offensive tactics, AD/Kerberos attacks
-- **Resume support** — interrupt and continue any engagement without losing progress
-- **Unattended hardening** — auto-resume after stalls, queue stall recovery, permission-stall guards (workspace-local scratch/glob scoping prevents OpenCode `external_directory` approval prompts from blocking `/autoengage` runs), finding deduplication, surface coverage enforcement, and automatic report synthesis when report artifacts are missing or incomplete
+## Visual Demonstration
+
+<p align="center">
+  <img src="docs/terminal-cli-mockup.png" alt="RedTeam Agent Autonomous CLI Execution" width="90%">
+  <br>
+  <em>Autonomous CLI engagement running in OpenCode with real-time multi-agent dispatch and streaming verification.</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-20260429-045700.png" alt="RedTeam Agent Orchestrator Web GUI" width="90%">
+  <br>
+  <em>The local Web Orchestrator GUI visualizing run phases, event logs, 9-agent status, case queues, and findings.</em>
+</p>
+
+<p align="center">
+  <img src="docs/redteam-agent-demo-fast.gif" alt="RedTeam Agent Animated Terminal Demo" width="90%">
+</p>
+
+---
+
+## Key Capabilities
+
+* **Multi-CLI Native**: Operates out of the box with OpenCode, Claude Code, and OpenAI Codex through automated install-time prompt compilation.
+* **Deterministic Streaming Pipeline**: Replaces unpredictable, monolithic prompt conversations with a persistent SQLite queue (`cases.db`) and a zero-token shell dispatcher (`dispatcher.sh`).
+* **9 Dedicated Agent Personas**: Operator, Recon Specialist, Network Analyst, Source Analyzer, Vulnerability Analyst, Exploit Developer, Fuzzer, OSINT Analyst, and Report Writer.
+* **Dual Runtime Architecture**:
+  * **Docker Containerization**: Isolates Kali tools, ProjectDiscovery suites (`katana`, `nuclei`, `subfinder`), `mitmproxy`, and Metasploit RPC in zero-setup containers.
+  * **Bare-Metal Kali (`local`)**: Runs natively against local host binaries for maximum performance and direct network adapter access.
+* **Unified Web & Infrastructure Scope**: Seamlessly pivots between HTTP/API testing and network protocol exploitation (SMB, LDAP, Kerberos, SSH, RDP, MSSQL, PostgreSQL).
+* **Unattended Hardening**: Auto-recovers from process interruptions, enforces strict directory scoping to eliminate approval stalls, prevents duplicate findings, and validates surface coverage.
+* **CTF & Lab Profile Engine**: Includes 13 ready-to-run lab profiles (Juice Shop, DVWA, WebGoat, bWAPP, HackTheBox, VulnHub, TryHackMe, Metasploitable) with objective closure verification.
+* **Web Orchestrator GUI**: Optional FastAPI + React 18 control plane offering real-time WebSocket telemetry, Kanban case boards, and artifact previews.
+
+---
 
 ## Installation
 
 ### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) (with Docker Compose) — **not required** for the bare-metal Kali runtime
-- At least one AI CLI tool if you are not using the Docker all-in-one runtime:
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-  - [OpenCode](https://opencode.ai) (`npm install -g opencode-ai`)
-  - [Codex](https://github.com/openai/codex)
-- Local tools: `curl`, `jq`, `sqlite3` (not required for the Docker all-in-one runtime)
-- Native Windows/PowerShell is not supported
-
-### Installation Help
+* **Operating System**: Linux or macOS (Windows/PowerShell is not supported; use WSL2).
+* **At least one supported AI CLI**:
+  * [OpenCode](https://opencode.ai) (`npm install -g opencode-ai`) *(Recommended)*
+  * [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+  * [Codex](https://github.com/openai/codex)
+* **Runtime requirements**:
+  * [Docker](https://docs.docker.com/get-docker/) with Docker Compose *(not required for bare-metal Kali runtime)*.
+  * Base host utilities: `curl`, `jq`, `sqlite3`, `python3` (>= 3.11).
 
 ```bash
 ./install.sh -h
 ```
 
-## Usage by CLI
+---
 
-### Bare-metal Kali (no Docker)
+### Installation Options
 
-Run the full agent directly on a host Kali install using the `local` runtime.
-
-**Install**
-
+#### 1. Docker All-in-One Runtime (Recommended for Isolation)
+Packages OpenCode, RedTeam Agent, and the complete pentest container toolchain into an isolated, self-contained environment:
 ```bash
-./install.sh kali ~/redteam-agent          # sets REDTEAM_RUNTIME_MODE=local
-./install.sh kali ~/redteam-agent --install # + auto-install missing tools
-```
-
-**Verify tools**
-
-```bash
-cd ~/redteam-agent
-./scripts/check_local_tools.sh --install
-```
-
-**Start / Run**
-
-```bash
-cd ~/redteam-agent
-opencode
-/engage http://your-ctf-target:8080
-```
-
-**Notes**
-- On Kali, `install.sh` auto-selects `local` mode for `opencode`/`claude`/`codex` unless you export `REDTEAM_RUNTIME_MODE`; the `docker` product always stays in Docker mode.
-- `run_tool`, mitmproxy, Katana, and the Metasploit MCP all run host binaries instead of containers.
-- Full guide: [`docs/baremetal-kali.md`](docs/baremetal-kali.md).
-
-### Docker (Recommended)
-
-**Install**
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NeoTheCapt/RedteamAgent/v0.1.1/install.sh) docker
-# or:
+# Automated install into ~/redteam-docker
 ./install.sh docker ~/redteam-docker
-./install.sh --force docker ~/redteam-docker
-```
 
-**Start**
-
-```bash
+# Launch the runtime
 cd ~/redteam-docker
 ./run.sh
 ```
 
-**Run**
-
+#### 2. OpenCode CLI
+Installs canonical agent source directly into your workspace:
 ```bash
-/engage http://your-ctf-target:8080
-/autoengage http://your-ctf-target:8080
-```
+./install.sh opencode ~/my-redteam-agent
 
-**Notes**
-- This is the cleanest runtime path: the image bundles OpenCode, Redteam Agent, and the pentest toolchain.
-- `run.sh` starts from the image-baked clean template, persists engagement files in `workspace/`, and persists the OpenCode XDG dirs across restarts: `opencode-home/` (auth tokens), `opencode-config/` (model selection), `opencode-state/` (TUI state).
-- Use `./run.sh --ephemeral-opencode` if you do not want to persist any OpenCode state outside the container (you'll have to reconfigure the model each run).
-- Use `./run.sh --rebuild` to force a clean image rebuild after install.
-
-### OpenCode (Recommended)
-
-**Install**
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NeoTheCapt/RedteamAgent/v0.1.1/install.sh) opencode
-# or:
-./install.sh opencode
-./install.sh opencode ~/my-project
-./install.sh --dry-run opencode
-```
-
-**Start**
-
-```bash
-cd ~/redteam-agent
+cd ~/my-redteam-agent
 opencode
 ```
 
-**Run**
-
+#### 3. Bare-Metal Kali Linux (Native Host Tools, No Docker)
+Installs onto Kali Linux and validates all host pentest tools:
 ```bash
-/engage http://your-ctf-target:8080
-/autoengage http://your-ctf-target:8080
-```
+./install.sh kali ~/redteam-agent --install
 
-**Notes**
-- Configure your LLM provider in `.opencode/opencode.json`.
-- OpenCode can optionally use the local Metasploit MCP path during `Exploit` when a finding clearly maps to a known module family, service, product/version, or CVE.
-
-### Claude Code
-
-**Install**
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NeoTheCapt/RedteamAgent/v0.1.1/install.sh) claude
-# or:
-./install.sh claude
-./install.sh claude ~/my-project
-```
-
-**Start**
-
-```bash
 cd ~/redteam-agent
+./scripts/check_local_tools.sh
+opencode
+```
+
+#### 4. Claude Code
+Generates Claude subagent definitions and commands at install time:
+```bash
+./install.sh claude ~/redteam-claude
+
+cd ~/redteam-claude
 claude
 ```
 
-**Run**
-
+#### 5. OpenAI Codex
+Generates Codex agent definitions at install time:
 ```bash
-/engage http://your-ctf-target:8080
-/autoengage http://your-ctf-target:8080
-```
+./install.sh codex ~/redteam-codex
 
-### Codex
-
-**Install**
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NeoTheCapt/RedteamAgent/v0.1.1/install.sh) codex
-# or:
-./install.sh codex
-./install.sh codex ~/my-project
-```
-
-**Start**
-
-```bash
-cd ~/redteam-agent
+cd ~/redteam-codex
 codex
 ```
 
-**Run**
+---
 
-```text
-engage http://your-ctf-target:8080
-autoengage http://your-ctf-target:8080
-```
+## Quick Start
 
-**Notes**
-- Codex does not support slash commands the same way OpenCode and Claude Code do; use natural-language command invocation when needed.
+### 1. Launching an Engagement
 
-### Local Orchestrator GUI (Optional)
-
-Use the local web UI when you want to manage multiple workspaces or inspect live runs outside the CLI.
-
-**Start**
+Start your chosen CLI in your agent directory, then initiate an engagement:
 
 ```bash
+# Semi-autonomous mode (prompts for proxy/cookie auth and confirms initial phase plan)
+/engage http://target-app.local:8080
+
+# Fully autonomous mode (zero user prompts, auto-skips or auto-registers auth, runs end-to-end)
+/autoengage http://target-app.local:8080
+
+# Network engagement mode (CIDR or IP range: bypasses web crawlers, activates TCP/UDP services)
+/engage 10.10.10.0/24
+```
+
+### 2. Resuming an Interrupted Session
+
+If a session is interrupted, network connection drops, or the CLI restarts, resume without data loss:
+```bash
+/resume
+```
+
+---
+
+## Slash Commands
+
+| Command | Description |
+|---|---|
+| `/engage <target>` | Initiates a structured engagement against a URL, IP, or CIDR block |
+| `/autoengage <target>` | Runs fully autonomous end-to-end testing with zero interactive prompts |
+| `/resume` | Resumes an interrupted engagement from existing disk artifacts |
+| `/status` | Displays high-level phase metrics, queue state, and active agents |
+| `/queue` | Shows detailed breakdown of cases across stages in `cases.db` |
+| `/auth <cookie\|header>` | Injects authentication credentials or session headers into active runtime |
+| `/proxy <start\|stop>` | Spawns or stops the `mitmproxy` intercepting container/process |
+| `/report` | Forces compilation of the final engagement report from findings |
+| `/stop` | Terminates active background containers, crawlers, and tools |
+| `/confirm <auto\|manual>` | Toggles between interactive confirmation and auto-proceed mode |
+| `/config [key] [value]` | Inspects or overrides engagement and crawler runtime settings |
+| `/subdomain <domain>` | Triggers active and passive subdomain enumeration |
+| `/vuln-analyze` | Manually prompts vulnerability analysis over accumulated artifacts |
+| `/osint` | Runs passive OSINT correlation against identified hosts, emails, and technologies |
+| `/recon` | Manual phase override: runs active/passive reconnaissance |
+| `/scan` | Manual phase override: runs port and service scanning |
+| `/enumerate` | Manual phase override: runs deep resource and directory enumeration |
+| `/exploit` | Manual phase override: runs exploitation on confirmed findings |
+| `/pivot` | Explores lateral movement and pivoting opportunities from compromised hosts |
+
+---
+
+## System Architecture
+
+```
+                                  ┌───────────────────────────────┐
+                                  │           OPERATOR            │
+                                  │    Strategic State Machine    │
+                                  │   (Never tests targets direct)│
+                                  └───┬───┬───┬───┬───┬───┬───┬───┘
+                                      │   │   │   │   │   │   │
+        ┌─────────────────────────────┘   │   │   │   │   │   └─────────────────────────────┐
+        ▼                                 ▼   │   ▼   │   ▼                                 ▼
+┌──────────────┐                 ┌──────────┐ │ ┌───┐ │ ┌───────────┐                 ┌─────────────┐
+│ recon-       │                 │ source-  │ │ │vul│ │ │ exploit-  │                 │ report-     │
+│ specialist   │                 │ analyzer │ │ │ana│ │ │ developer │                 │ writer      │
+│ (Fingerprint)│                 │ (Static) │ │ │ly │ │ │ (Exploit) │                 │ (Report)    │
+└───────┬──────┘                 └────┬─────┘ │ └───┘ │ └─────▲─────┘                 └─────────────┘
+        │                             │       ▼       ▼       │
+        │                             │    fuzzer  network-   │
+        │                             │    (Fuzz)  analyst    │
+        ▼                             ▼            (TCP/UDP)──┘
+ ┌──────────────┐              ┌─────────────┐
+ │  cases.db    │◄─────────────┤ intel.md    │◄─── osint-analyst
+ │ (Queue State)│              │ (Secrets &  │     (Correlation)
+ └──────────────┘              │  Identities)│
+                               └─────────────┘
+```
+
+### The 9 Specialized Agents
+
+1. **[`operator`](file:///root/red-team/agent/.opencode/prompts/agents/operator.txt)**: Orchestrates the engagement lifecycle. Assesses state, reviews `scope.json` and `log.md`, dispatches tasks, records findings, and validates completion gates.
+2. **[`recon-specialist`](file:///root/red-team/agent/.opencode/prompts/agents/recon-specialist.txt)**: Performs passive and active recon (DNS, WHOIS, Wappalyzer, Nikto, Nmap, directory discovery). Re-dispatches automatically when new authentication credentials surface.
+3. **[`network-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/network-analyst.txt)**: Specializes in non-HTTP TCP/UDP services (SMB, RPC, Active Directory, Kerberos, database listeners, SSH, RDP, DNS, SNMP, NFS).
+4. **[`source-analyzer`](file:///root/red-team/agent/.opencode/prompts/agents/source-analyzer.txt)**: Performs static analysis of client-side JavaScript, HTML, source maps, and API specifications to unearth hidden routes, parameters, and tokens.
+5. **[`vulnerability-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/vulnerability-analyst.txt)**: Rapid, bounded triage agent executing 1–2 precise verification probes per vulnerability family against web endpoints.
+6. **[`exploit-developer`](file:///root/red-team/agent/.opencode/prompts/agents/exploit-developer.txt)**: Takes confirmed primitives (`stage=vuln_confirmed`), constructs full exploit chains, verifies operational impact, and integrates with Metasploit MCP.
+7. **[`fuzzer`](file:///root/red-team/agent/.opencode/prompts/agents/fuzzer.txt)**: Executes high-volume statistical fuzzing (>500 payloads) using deep SecLists dictionaries when escalated by the vulnerability analyst.
+8. **[`osint-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/osint-analyst.txt)**: Monitors accumulated intelligence in `intel.md` via an idempotent watcher script and queries public CVEs, breach datasets, and DNS history.
+9. **[`report-writer`](file:///root/red-team/agent/.opencode/prompts/agents/report-writer.txt)**: Compiles structured markdown reports detailing executive risk summaries, technical vulnerability breakdowns, reproduction proofs, and remediation advisories.
+
+---
+
+## Case Collection Pipeline
+
+State persistence and task routing are handled by an embedded SQLite database (`cases.db`) running under WAL mode.
+
+```
+Producers                               SQLite Queue (`cases.db`)                 Consumers
+┌──────────────┐                        ┌───────────────────────┐                 ┌─ vulnerability-analyst
+│ mitmproxy    ├─┐                      │ Deduplication:        │                 │  (api, form, graphql)
+│ Katana       ├─┼──> [ Ingest Scripts ]│ UNIQUE(method,        ├──> dispatcher ─┼─ source-analyzer
+│ recon_ingest ├─┤    (net_ingest.sh)   │  url_path,            │    (batch)      │  (javascript, page)
+│ netscan.sh   ├─┘                      │  params_key_sig)      │                 ├─ fuzzer (fuzz_pending)
+└──────────────┘                        └───────────────────────┘                 ├─ exploit-developer
+                                                                                  └─ network-analyst (service)
+```
+
+### Stage Transitions
+* `ingested`: Fresh endpoint or network service discovered by crawlers or scanners.
+* `source_analyzed`: Static carrier analysis completed; newly revealed endpoints re-queued at `ingested`.
+* `vuln_confirmed`: Vulnerability verified by triage; passed directly to `exploit-developer`.
+* `fuzz_pending`: Complex input parameter flagged for deep wordlist fuzzing.
+* `api_tested` / `clean` / `exploited` / `errored`: Terminal states.
+
+---
+
+## Attack Methodology Skills & References
+
+### 38 Offensive Skills ([`agent/skills/`](file:///root/red-team/agent/skills/))
+* **Injection**: SQL Injection, Command Injection, SSTI, XXE, GraphQL Injection.
+* **Authentication & Identity**: Auth Bypass, JWT Tampering, User Enumeration, IDOR, Session Misconfiguration.
+* **Client-Side & Web**: Stored/Reflected/DOM XSS, CSRF, CORS Misconfiguration, Open Redirect, WebSockets.
+* **Architecture & Transport**: SSRF, HTTP Request Smuggling, Deserialization, Race Conditions, Business Logic Testing, File Inclusion (LFI/RFI), File Upload Abuse.
+* **Infrastructure & Services**: Active Directory & Kerberos (`ldap-kerberos`), SMB/RPC (`smb-netbios`), Database Services (`database-services`), Remote Access (`remote-access-services`), Mail/DNS (`mail-dns-services`), SNMP/FTP/NFS (`snmp-ftp-nfs`).
+
+### 79 Security References ([`agent/references/`](file:///root/red-team/agent/references/))
+* **OWASP Top 10 (2025 Edition)** & **OWASP API Security Top 10 (2023)**.
+* **Active Directory Attack Guides**: Kerberoasting, AS-REP roasting, ADCS ESC1-ESC8 abuse, BloodHound hunting.
+* **Offensive Tradecraft & Tooling**: In-depth usage guides for `sqlmap`, `hydra`, `nmap`, `ffuf`, `gobuster`, `hashcat`, and `nuclei`.
+
+---
+
+## Lab Profiles & Objective Verification
+
+RedTeam Agent decouples lab-specific flags and knowledge from generic prompts via declarative JSON profiles in [`agent/labs/`](file:///root/red-team/agent/labs/):
+
+* **Supported Profiles**: `juice-shop`, `dvwa`, `webgoat`, `bwapp`, `portswigger`, `metasploitable`, `hackthebox`, `vulnhub`, `tryhackme`, `generic-web`, `generic-network`, `generic-ctf`.
+* **Objective Tracking**: [`agent/scripts/lab_objective.py`](file:///root/red-team/agent/scripts/lab_objective.py) automatically fingerprints the lab, extracts remote challenge scoreboards or local flag targets, tracks progress, and halts completion until all declared objectives are solved.
+
+---
+
+## Orchestrator Web GUI
+
+For multi-target management and real-time visualization, RedTeam Agent includes an optional web control plane:
+
+```bash
+# Start backend and frontend (default: http://127.0.0.1:18000)
 ./orchestrator/run.sh
-# or rebuild the all-in-one image first:
-./orchestrator/run.sh --rebuild
-```
 
-**Stop**
-
-```bash
+# Stop orchestrator services
 ./orchestrator/stop.sh
 ```
 
-**Notes**
-- Default URL: `http://127.0.0.1:18000`
-- `./orchestrator/run.sh` bootstraps the backend virtualenv, installs frontend dependencies if needed, and builds the frontend before starting.
-- The UI exposes projects, live run status, task/phase timelines, artifacts, and terminal run metadata from the runs API.
-- The backend auto-recovers incomplete runs after supervisor loss or backend restarts, synthesizes missing reports from engagement artifacts, and enforces completion health checks — making the UI suitable for long-running unattended sessions.
+* **Backend**: FastAPI app with SQLite storage, real-time WebSocket feeds, run supervision, and automatic report synthesis.
+* **Frontend**: React 18 SPA featuring KPI dashboards, interactive phase timelines, Kanban-style case queues, and live event telemetry.
 
-## Shared Outputs
+---
 
-Every runtime writes engagement artifacts to:
+## Engagement Outputs
 
-```text
-engagements/<timestamp-target>/
-```
-
-Common outputs:
-- `findings.md` — vulnerability findings and supporting evidence
-- `report.md` — final engagement report
-- `log.md` — execution log and operator timeline
-- `intel.md` — summary intelligence safe for routine review
-- `intel-secrets.json` — full captured secrets and tokens
-- `auth.json` — active auth material and session state
-- `cases.db` — SQLite queue, classification, and work state
-- `surfaces.jsonl` — high-risk surface coverage tracking
-
-Sensitive outputs:
-- Do not casually share `intel-secrets.json`, `auth.json`, or any engagement directory that still contains live credentials, tokens, or session state.
-- If you need to share results, prefer `report.md`, selected excerpts from `findings.md`, and a reviewed/redacted subset of supporting files.
-
-## Engagement Modes
-
-| | `/engage` | `/autoengage` |
-|---|---|---|
-| Auth setup | Asks you to choose (proxy/cookie/skip) | Auto-skip, auto-register if endpoint found, auto-use discovered creds |
-| Phase approval | Auto-confirm by default, first phase needs approval | Never asks. Every phase auto-proceeds. |
-| Decisions | Parallel by default, can choose sequential | Always parallel. No options. |
-| Errors | May stop on unexpected issues | Logs error, continues next task |
-| When to use | First time on a target, want oversight | Repeat runs, overnight scans, maximum coverage |
-
-The agent runs through 5 phases:
-
-```text
-Phase 1: RECON ─── recon-specialist + source-analyzer (parallel)
-    │
-Phase 2: COLLECT ─ Import endpoints → SQLite queue, start Katana crawler
-    │
-Phase 3: TEST ──── Stage-based case pipeline (replaces strict phase gates):
-    │               cases carry a `stage` column independent of `status`.
-    │               Routing by stage+type:
-    │                 ingested + {api,form,graphql,upload,websocket} → vuln-analyst
-    │                 ingested + {javascript,page,stylesheet,data,unknown,api-spec} → source-analyzer
-    │                 vuln_confirmed                                 → exploit-developer
-    │                 fuzz_pending                                   → fuzzer (deep wordlists, >500 entries)
-    │               Consume-test dispatch is SERIALIZED: one fetch + one task() per turn.
-Phase 4: EXPLOIT ── osint-analyst + exploit-developer (parallel)
-    │               osint-analyst: CVE/breach/DNS/social intel from intel.md
-    │               exploit-developer: chain analysis, impact assessment
-    │               osint-respawn: operator runs `intel_changed_check.sh` per
-    │               loop tick; flag triggers a fresh osint correlation pass.
-Phase 5: REPORT ── report-writer with coverage statistics + intelligence summary
-```
-
-## Common Commands
-
-| Command | Description |
-|---------|-------------|
-| `/engage <url>` | Start a new engagement (semi-autonomous) |
-| `/autoengage <url>` | **Fully autonomous** — zero interaction, max coverage |
-| `/resume` | Continue an interrupted engagement |
-| `/status` | Show progress dashboard with queue stats |
-| `/proxy start/stop` | Manage mitmproxy interception proxy |
-| `/auth cookie/header` | Configure authentication credentials |
-| `/queue` | Show case queue statistics |
-| `/report` | Generate final report |
-| `/stop` | Stop all background containers |
-| `/confirm auto/manual` | Toggle auto/manual approval mode |
-| `/config [key] [value]` | View or set runtime configuration |
-| `/subdomain <domain>` | Enumerate subdomains for a domain |
-| `/vuln-analyze` | Analyze scan results for vulnerabilities |
-| `/osint` | Run OSINT intelligence gathering on current engagement |
-| `/recon` `/scan` `/enumerate` `/exploit` `/pivot` | Manual phase overrides |
-
-### Authentication
-
-```text
-1 — Proxy login (recommended): /proxy start → login in browser
-2 — Manual cookie: /auth cookie "session=abc123"
-3 — Manual header: /auth header "Authorization: Bearer ..."
-4 — Skip: test unauthenticated surface, configure auth later
-```
-
-## Architecture
-
-### 9 Agents
+Every run isolates all evidence and logs inside `engagements/<timestamp-target>/`:
 
 ```
-                    ┌─────────────────────────┐
-                    │        OPERATOR          │
-                    │  (primary — drives all)  │
-                    └──┬──┬──┬──┬──┬──┬──┬────┘
-                       │  │  │  │  │  │  │
-  ┌────────────────────┘  │  │  │  │  │  └──────────────────┐
-  ▼                       ▼  │  ▼  │  │                     ▼
-recon-         source-    │ vuln-  │  │             report-
-specialist     analyzer   │ analyst│  │             writer
-(network)      (code)     │ (test) │  │             (report)
-  │              │        ▼        ▼  ▼
-  │              │     fuzzer  exploit-  osint-
-  │              │     (fuzz)  developer analyst
-  │              │             (exploit) (OSINT)
-  │              │                ▲        │
-  │   intel.md ◄─┘                │        │
-  └──► intel.md                   └────────┘
-                              operator feeds
-                            OSINT intel → exploit
+engagements/20260924-target-local/
+├── findings.md             # Documented vulnerabilities with PoC payloads & evidence
+├── report.md               # Final comprehensive penetration testing report
+├── log.md                  # Chronological timeline of operator decisions & tool logs
+├── intel.md                # Captured credentials, users, tech stacks, and domain maps
+├── intel-secrets.json      # Raw captured passwords, API keys, and session tokens
+├── auth.json               # Active session cookies, bearer headers, and tokens
+├── cases.db                # SQLite database of all evaluated endpoints & services
+├── surfaces.jsonl          # Attack surface coverage ledger
+├── lab-profile.json        # Resolved target lab configuration and objectives
+└── scans/                  # Raw tool outputs (Nmap XML, Katana JSON, Nikto, etc.)
 ```
 
-`network-analyst` runs alongside the web consumers: it picks up `type=service` cases
-(TCP/UDP) at stage `ingested` and hands confirmed primitives to `exploit-developer`.
+---
 
-### Case Pipeline
+## Development & Contributing
 
-```
-Producers              Queue (SQLite)         Consumers
-┌──────────┐
-│ mitmproxy │─┐   ┌──────────┐  ┌────────┐  ┌─ vuln-analyst (api/form)
-│ Katana    │─┼──→│ cases.db │─→│dispatch│──┼─ source-analyzer (js/css)
-│ recon     │─┤   └──────────┘  │ (.sh)  │  ├─ fuzzer (deep params)
-│ spec      │─┤   dedup+state   └────────┘  ├─ exploit-dev (confirmed)
-│ net_ingest│─┘   16 types       0 tokens   └─ network-analyst (service)
-└──────────┘                                   ▲
-     ▲                                         │
-     └──────────── new endpoints/services ─────┘
-```
+### The Three-Layer Split
+Contributions must respect the architecture:
+1. **Repository Root**: Meta only (`install.sh`, `README.md`, `ABOUT.md`, `docs/`, `.gitignore`).
+2. **`agent/`**: **Canonical runtime**. All prompts, skills, references, scripts, and docker files live here.
+3. **`orchestrator/`**: Web GUI reading exclusively from `agent/`.
 
-`network-analyst` handles TCP/UDP service cases (`type=service`, produced by
-`net_ingest.sh` from nmap output). Network engagements (`/engage 10.0.0.0/24`) skip
-Katana/mitmproxy entirely; see [`docs/baremetal-kali.md`](docs/baremetal-kali.md) for the
-runtime and the service skills under `agent/skills/`.
-
-### Directory Structure
-
-```
-RedteamOpencode/                ← dev workspace (git root)
-├── install.sh                  ← installs agent/ to ~/redteam-agent
-├── README.md                   ← project docs
-│
-├── agent/                      ← ALL agent runtime files (what gets installed)
-│   ├── CLAUDE.md               ← operator prompt (Claude Code)
-│   ├── AGENTS.md               ← operator prompt (Codex)
-│   ├── .opencode/              ← OpenCode config + single source of truth
-│   │   ├── opencode.json       ← agent metadata, skills, commands, plugins
-│   │   ├── prompts/agents/     ← 8 agent prompts (.txt) — SINGLE SOURCE
-│   │   ├── commands/           ← 19 slash commands (.md) — SINGLE SOURCE
-│   │   └── plugins/            ← engagement hooks (TypeScript)
-│   ├── .claude/                ← Claude Code config (agents + commands generated)
-│   │   └── settings.json       ← hooks (scope check + auto-logging)
-│   ├── .codex/                 ← Codex config (agents generated)
-│   ├── scripts/
-│   │   ├── install-time generators ← install.sh builds .claude/agents + .codex/agents + .claude/commands
-│   │   ├── dispatcher.sh       ← case queue management
-│   │   └── ...                 ← ingest, hooks, shared libraries
-│   ├── skills/                 ← 38 attack methodology skills (web + TCP/UDP services)
-│   ├── references/             ← 79 reference files (OWASP, tools, tactics, AD)
-│   ├── labs/                   ← lab profiles (generic, juice-shop, dvwa, webgoat, ...)
-│   ├── docker/                 ← Dockerfiles + docker-compose.yml
-│   └── engagements/            ← per-engagement output (created at runtime)
-│
-└── orchestrator/               ← optional web UI (FastAPI backend + React frontend)
-    ├── backend/                ← Python API; reads from agent/ via agent_source_dir
-    └── frontend/               ← React shell (Documents / Events / Progress / Cases tabs)
-```
-
-## CLI Compatibility
-
-| Feature | Claude Code | OpenCode | Codex |
-|---------|-------------|----------|-------|
-| Operator prompt | `CLAUDE.md` | `.opencode/prompts/agents/operator.txt` | `AGENTS.md` |
-| Subagents (8) | Generated `.claude/agents/*.md` | `.opencode/prompts/agents/*.txt` **(source)** | Generated `.codex/agents/*.toml` |
-| Slash commands (19) | Generated `.claude/commands/*.md` | `.opencode/commands/*.md` **(source)** | Not supported — use natural language instead |
-| Skills (31) | `skills/*/SKILL.md` (read on demand) | Loaded via instructions array | `skills/*/SKILL.md` (read on demand) |
-| Build | `install.sh claude` generates agents + commands at install time | N/A (source files) | `install.sh codex` generates agents at install time |
-| Auto-logging | `.claude/settings.json` hooks | `.opencode/plugins/engagement-hooks.ts` | N/A |
-| Scope enforcement | Hook blocks out-of-scope | Hook warns out-of-scope | N/A |
-| Agent attribution | `agent_type` in hook JSON | `chat.message` event tracking | N/A |
-
-**Development-only wrappers**
-- `agent/.claude/agents/operator.md` and `agent/.codex/agents/operator.toml` exist only for working inside the source repo.
-- Installed Claude/Codex workspaces keep `CLAUDE.md` or `AGENTS.md` as the operator entrypoint and install only generated subagents.
-
-## Customization
-
-### Add a Skill
-
+Install the pre-commit hook before committing:
 ```bash
-mkdir agent/skills/my-skill
-# Write agent/skills/my-skill/SKILL.md with frontmatter + methodology
-# Add "skills/my-skill/SKILL.md" to instructions array in agent/.opencode/opencode.json
+cp agent/scripts/hooks/block-root-dup-dirs.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
 ```
 
-### Add References
+---
 
-Add files to `agent/references/<category>/` and update `agent/references/INDEX.md`.
+## Authorization & Legal Notice
 
-### Change LLM Provider (OpenCode)
-
-Edit `model` in `agent/.opencode/opencode.json`. Supports Anthropic, OpenAI, Google, Ollama.
-
-### Per-Project Configuration
-
-Each project stores its own config, inherited by every run launched under it. Configure via the **Edit project** button in the Sidebar or NewRunForm, which opens the Project Edit modal with 6 tabs:
-
-| Tab | Fields | Env vars injected into run container |
-|-----|--------|--------------------------------------|
-| **Model** | provider_id, model_id, small_model_id, api_key, base_url | `REDTEAM_OPENCODE_MODEL`, `REDTEAM_OPENCODE_SMALL_MODEL`, `OPENAI_API_KEY`, `OPENAI_BASE_URL` (or `ANTHROPIC_*`) |
-| **Auth** | JSON blob for cookies / headers / tokens | Written to `auth.json` in seed dir |
-| **Env** | Free-form JSON `{"VAR": "value"}` | Merged into container env |
-| **Crawler** | Katana crawl parameters | `KATANA_CRAWL_DEPTH`, `KATANA_CRAWL_DURATION`, `KATANA_TIMEOUT_SECONDS`, `KATANA_CONCURRENCY`, `KATANA_PARALLELISM`, `KATANA_RATE_LIMIT`, `KATANA_STRATEGY`, `KATANA_ENABLE_HYBRID`, `KATANA_ENABLE_XHR`, `KATANA_ENABLE_HEADLESS`, `KATANA_ENABLE_JSLUICE`, `KATANA_ENABLE_PATH_CLIMB` |
-| **Parallel** | Concurrency ceiling | `REDTEAM_MAX_PARALLEL_BATCHES` |
-| **Agents** | Enable/disable per subagent | `REDTEAM_DISABLED_AGENTS` (comma-separated list of disabled agent IDs when any are off) |
-
-**Defaults**: Empty JSON `{}` for every config category. When a key is absent, the runtime falls back to the value baked into `.env` or the agent defaults. Fields only override when explicitly set.
-
-**Precedence**: `crawler_json` / `parallel_json` / `agents_json` win over free-form `env_json`. To clear a field, set it to `""` (empty string), not `null`.
-
-## Development
-
-### Directory Convention (READ BEFORE CONTRIBUTING)
-
-This repo has a **strict three-layer split** — do not cross the lines:
-
-| Layer | Purpose | Examples |
-|-------|---------|----------|
-| **Repo root** | Meta only — install script, docs, CI | `install.sh`, `README*.md`, `.gitignore`, `docs/` |
-| **`agent/`** | ALL agent runtime (**canonical**) | `.opencode/`, `scripts/`, `skills/`, `references/`, `docker/`, prompts, operator core |
-| **`orchestrator/`** | Optional web UI (reads `agent/`, never copies from root) | `backend/` (FastAPI), `frontend/` (React) |
-
-**Rule**: `agent/` is the single source of truth for the agent runtime. The orchestrator backend hardcodes `agent_source_dir = REPO_ROOT / "agent"` (`orchestrator/backend/app/config.py:17`) and syncs from there into each engagement's workspace. `install.sh` also installs from `agent/` into the target dir.
-
-**DO NOT** create root-level `/.opencode/`, `/scripts/`, `/skills/`, `/references/`, or `/docker/`. Edit the `agent/`-scoped copy instead.
-
-Two guards are in place:
-
-1. **`.gitignore`** blocks those paths at `git add` time.
-2. **Pre-commit hook** at `agent/scripts/hooks/block-root-dup-dirs.sh` refuses the commit if the paths slip through. Install once per clone:
-
-   ```bash
-   cp agent/scripts/hooks/block-root-dup-dirs.sh .git/hooks/pre-commit
-   chmod +x .git/hooks/pre-commit
-   ```
-
-### Where to run your CLI
-
-- **Root** (`RedteamOpencode/`): dev workspace. Run CLI here for repo-level tooling (tests, docs work, orchestrator dev).
-- **`agent/`**: runtime home. Run CLI inside `agent/` (or the installed target `~/redteam-agent/`) to drive engagements.
-
-### Single-Source Architecture
-
-Agent prompts and commands are maintained **only** in OpenCode format (`.opencode/`). Claude Code and Codex versions are **generated at install time** by `install.sh`:
-
-```bash
-# install.sh handles building for the target product:
-./install.sh claude ~/my-project   # generates .claude/agents/*.md + commands at install time
-./install.sh codex ~/my-project    # generates .codex/agents/*.toml at install time
-./install.sh opencode ~/my-project # copies .opencode/ directly (no build needed)
-```
-
-**To modify an agent:** edit `agent/.opencode/prompts/agents/<name>.txt`, then re-run `install.sh` for your product.
-
-**To add a new agent:** create the `.txt` file, add agent entry to `opencode.json`, re-run `install.sh`.
-
-**Operator prompts** use a mixed model:
-- `agent/.opencode/prompts/agents/operator.txt` stays as the OpenCode source prompt
-- `agent/operator-core.md` is the shared Claude/Codex methodology body
-- `agent/scripts/render-operator-prompts.sh` renders `CLAUDE.md`, `AGENTS.md`, and the thin local operator wrappers
-- `bash tests/agent-contracts/check-operator-prompts.sh` verifies the generated files are still in sync
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Docker images fail to build | `docker system prune -af && cd agent/docker && docker compose build --no-cache` |
-| Docker build fails while fetching Kali packages | Re-run the build. The Dockerfiles configure apt retry/timeout and pin Kali to the official mirror, but transient network failures can still require another attempt. |
-| Katana doesn't start | Check: `docker logs redteam-katana` |
-| Agent refuses to test target | Adjust auth in `agent/CLAUDE.md` or `agent/.opencode/instructions/INSTRUCTIONS.md` |
-| Queue shows 0 cases | Run `/status` — check Collect phase was executed |
-| ProviderModelNotFoundError | Set `model` in `agent/.opencode/opencode.json` |
-
-## License
-
-For authorized security testing only. Only use against targets you have explicit permission to test.
+> [!CAUTION]
+> **FOR AUTHORIZED SECURITY TESTING ONLY**
+> 
+> RedTeam Agent is a powerful offensive security simulation framework. It must be operated **exclusively** on systems, applications, and networks where you have received explicit, prior written authorization from the verified owner.
+> 
+> Unauthorized port scanning, exploitation, or vulnerability discovery against third-party systems is strictly prohibited and violates local, federal, and international law. The developers and contributors assume no liability for misuse, damages, or unintended consequences resulting from this software.

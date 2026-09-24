@@ -1,323 +1,305 @@
-# RedTeam Agent — Technical Overview
+# RedTeam Agent — Technical Overview & Architecture Specification
 
-A detailed description of how this project works: architecture, the case pipeline,
-agents, lab profiles, runtimes, and how to extend it.
-
-> **Authorization notice.** This tool is for authorized security testing only.
-> Use it exclusively against targets you own or have explicit written permission to
-> test (local labs, CTF environments, your own infrastructure).
+> **A comprehensive technical deep dive into RedTeam Agent's multi-agent execution model, streaming SQLite case pipeline, and orchestration engine.**
 
 ---
 
-## 1. What this is
+## 1. System Philosophy & Executive Summary
 
-An autonomous red-team / penetration-testing orchestration layer that runs inside an
-AI coding CLI. It turns a workspace into a full pentest environment driven by a
-primary **operator** agent that coordinates specialized subagents through a streaming,
-SQLite-backed case queue.
+RedTeam Agent is an autonomous cyber operations framework designed to perform end-to-end security evaluations against authorized web applications and network infrastructure. Rather than relying on a single conversational LLM prompt that attempts to alternate between high-level strategy and low-level payload crafting, RedTeam Agent implements a **hierarchical multi-agent architecture** managed by a deterministic state machine.
 
-Supported CLIs: **OpenCode** (primary/source of truth), **Claude Code**, **Codex**.
-
-Supported runtimes:
-
-| Runtime | How tools run | Best for |
-|---|---|---|
-| `docker` (default off-Kali) | one-shot `docker run kali-redteam` per tool call | isolation, zero host setup |
-| `local` (bare-metal Kali) | host binaries directly | Kali boxes with the toolchain installed |
-
-Scope of testing:
-
-- **Web applications** — HTTP case pipeline (recon → source → triage → exploit).
-- **TCP/UDP services** — service cases (SMB/RPC, databases, mail/DNS, remote access,
-  LDAP/Kerberos, SNMP/FTP/NFS).
-- **Network / AD labs** — CIDR/range scope, declared objectives (domain admin, root, …).
+### Core Tenets
+1. **Separation of Strategic and Operational Concerns**: The primary **Operator** maintains high-level situational awareness, enforces scope constraints, and directs task batches. Dedicated **Subagents** execute targeted tasks within narrow, bounded cognitive domains.
+2. **Token-Frugal State Decoupling**: Large attack surfaces generate hundreds of endpoints, parameters, and network services. Storing this state in conversational LLM memory leads to catastrophic context exhaustion. RedTeam Agent stores all surface and queue state in an embedded SQLite database (`cases.db`).
+3. **Zero-Token Dispatching**: Queue queries, batch locking, state transitions, and health checks run via shell scripts (`dispatcher.sh`), requiring zero LLM tokens for queue administration.
+4. **Dual-Domain Execution**: Supports both application-layer web targets (REST, GraphQL, SPAs, WebSockets) and network infrastructure protocols (Active Directory, Kerberos, SMB, databases, remote access, DNS, SNMP).
 
 ---
 
-## 2. Architecture at a glance
+## 2. Global Architecture
 
 ```
-                 ┌───────────────────────────────┐
-                 │           OPERATOR             │  primary agent
-                 │  coordinates + owns state      │  (never tests directly)
-                 └───┬───┬───┬───┬───┬───┬───┬────┘
-                     │   │   │   │   │   │   │
-   recon-specialist ─┘   │   │   │   │   │   └─ report-writer
-   network-analyst ──────┘   │   │   │   │
-   source-analyzer ──────────┘   │   │   │
-   vulnerability-analyst ────────┘   │   │
-   exploit-developer ────────────────┘   │
-   fuzzer / osint-analyst ───────────────┘
+                                  ┌───────────────────────────────┐
+                                  │           OPERATOR            │
+                                  │    Strategic State Machine    │
+                                  │   (Never tests targets direct)│
+                                  └───┬───┬───┬───┬───┬───┬───┬───┘
+                                      │   │   │   │   │   │   │
+        ┌─────────────────────────────┘   │   │   │   │   │   └─────────────────────────────┐
+        ▼                                 ▼   │   ▼   │   ▼                                 ▼
+┌──────────────┐                 ┌──────────┐ │ ┌───┐ │ ┌───────────┐                 ┌─────────────┐
+│ recon-       │                 │ source-  │ │ │vul│ │ │ exploit-  │                 │ report-     │
+│ specialist   │                 │ analyzer │ │ │ana│ │ │ developer │                 │ writer      │
+│ (Fingerprint)│                 │ (Static) │ │ │ly │ │ │ (Exploit) │                 │ (Report)    │
+└───────┬──────┘                 └────┬─────┘ │ └───┘ │ └─────▲─────┘                 └─────────────┘
+        │                             │       ▼       ▼       │
+        │                             │    fuzzer  network-   │
+        │                             │    (Fuzz)  analyst    │
+        ▼                             ▼            (TCP/UDP)──┘
+ ┌──────────────┐              ┌─────────────┐
+ │  cases.db    │◄─────────────┤ intel.md    │◄─── osint-analyst
+ │ (Queue State)│              │ (Secrets &  │     (Correlation)
+ └──────────────┘              │  Identities)│
+                               └─────────────┘
 ```
 
-- **Operator** — reads `scope.json`/`log.md`, decides the next action, dispatches
-  subagents, records findings/surfaces, drives the closure gate. It does not run
-  payloads itself.
-- **8 subagents** — each with a focused prompt, tool set, and reasoning mode.
-- **Case queue** (`cases.db`) — the state machine; producers add cases, the dispatcher
-  hands them to subagents by stage, subagents advance stages.
-- **Skills** (38) + **references** (79) — methodology and payload/reference library
-  loaded into context or read on demand.
-- **Lab profiles** (13) — lab-specific fingerprints, objective sources, and recall
-  triggers, kept as data so the prompt stays generic.
-- **Orchestrator** (optional) — FastAPI + React web UI for multi-project runs.
+The system comprises five core subsystems:
+1. **Operator Engine**: The primary decision loop driving phase progression and delegating work.
+2. **Specialized Subagent Pool**: 8 task-specific worker personas with isolated toolsets.
+3. **Streaming Case Pipeline**: SQLite-backed case queue with multi-source ingestion and atomic batch dispatch.
+4. **Methodology & Reference Library**: 38 offensive attack skills and 79 reference manuals.
+5. **Lab Profile & Closure Gate**: Declarative target fingerprinting and objective verification engine.
 
 ---
 
-## 3. The operator loop
+## 3. The Operator Decision Loop
 
-After `/engage` initialization, the operator repeats:
+The Operator operates on a strict iterative control loop. It **never** sends attack payloads or executes direct probes against the target; its sole responsibility is coordination and state tracking.
 
-1. **Assess state** — read `scope.json`; inspect the newest slice of `log.md`/`findings.md`;
-   run `intel_changed_check.sh` and `auth_respawn_check.sh` (flag-file respawn).
-2. **Decide** — prioritize by impact.
-3. **Dispatch** — always via a subagent (`task(...)`), never directly.
-4. **Record** — findings to `findings.md`, surfaces to `surfaces.jsonl`, intel to `intel.md`.
-5. **Loop** — until the stop condition holds.
+```
+       ┌──────────────────────────────┐
+       │       1. Assess State        │ ◄── Read scope.json, tail log.md,
+       └──────────────┬───────────────┘     run intel_changed_check.sh
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │     2. Decide Next Action    │ ◄── Prioritize by risk & pending stages
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │      3. Formulate Plan       │ ◄── Target parameters, tool selection
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │     4. Present or Proceed    │ ◄── Interactive vs Autoengage mode
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │    5. Atomic Task Dispatch   │ ◄── Pair fetch_batch with task() call
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │     6. Record Findings       │ ◄── Append to findings.md immediately
+       └──────────────┬───────────────┘
+                      │
+                      ▼
+       ┌──────────────────────────────┐
+       │     7. Reconcile Surfaces    │ ◄── Append to surfaces.jsonl
+       └──────────────┬───────────────┘
+                      │
+                      └───────────────────► Repeat until stop condition holds
+```
 
-Phases (`recon`, `collect`, `consume_test`, `exploit`, `report`, `complete`) are
-**derived labels** computed from stage counts by `update_phase_from_stages.sh`, not gates.
-
----
-
-## 4. The case pipeline
-
-### 4.1 Producers
-
-| Producer | Adds |
-|---|---|
-| `mitmproxy` | captured authenticated requests |
-| `Katana` (via `katana_ingest.sh`) | crawled endpoints / XHR |
-| `recon_ingest.sh` | HTTP endpoints from recon/source JSONL |
-| `spec_ingest.sh` | endpoints from OpenAPI/Swagger specs |
-| `net_ingest.sh` | TCP/UDP services from nmap XML or JSONL |
-| `netscan.sh` | convenience wrapper: nmap TCP+UDP → `net_ingest.sh` |
-
-### 4.2 Case model (`scripts/schema.sql`)
-
-HTTP columns: `method`, `url`, `url_path`, `query_params`, `body_params`,
-`path_params`, `cookie_params`, `headers`, `body`, `content_type`, `response_*`.
-
-Service columns (nullable; `type='service'`): `host`, `port`, `proto`, `service`,
-`service_product`, `service_version`, `banner`, `scan_ref`.
-
-Shared: `type`, `source`, `status`, `stage`, `assigned_agent`, `params_key_sig`.
-Dedup is `UNIQUE(method, url_path, params_key_sig)`; service cases reuse it with
-`method='SERVICE'`, `url='<proto>://host:port'`, `url_path='/host/port/proto'`.
-
-### 4.3 Stages and routing
-
-| Stage | Meaning | Next dispatch |
-|---|---|---|
-| `ingested` | fresh case | `service`→network-analyst; `javascript/page/stylesheet/data/unknown/api-spec`→source-analyzer; `api/form/graphql/upload/websocket`→vulnerability-analyst |
-| `source_analyzed` | source carrier analyzed | terminal (follow-ups start fresh) |
-| `vuln_confirmed` | exploitable | exploit-developer |
-| `fuzz_pending` | needs deep fuzz | fuzzer |
-| `api_tested` / `clean` / `exploited` / `errored` | terminal | — |
-
-### 4.4 Dispatcher (zero tokens)
-
-`scripts/dispatcher.sh` performs all queue bookkeeping in shell so the LLM never
-spends tokens on it: `stats`, `stats-by-stage`, `fetch`, `fetch-by-stage`,
-`done <ids> --stage <s>`, `error`, `set-stage`, `requeue`, `reset-stale`,
-`retry-errors`, `migrate`. It auto-migrates missing columns on legacy DBs.
-
-`fetch_batch_to_file.sh` wraps a stage fetch, writes the JSON batch to disk, and prints
-compact `BATCH_*` metadata (`BATCH_FILE`, `BATCH_IDS`, `BATCH_AGENT`, `BATCH_COUNT`,
-`BATCH_PATHS`, …). The operator must pair a non-empty fetch with the matching
-`task(...)` **in the same turn** (atomic fetch→dispatch).
-
-### 4.5 Stop condition
-
-Active stages (`ingested`, `vuln_confirmed`, `fuzz_pending`) = 0, `processing` = 0,
-`check_collection_health.sh` passes, `check_surface_coverage.sh` passes, and recon has
-returned at least once.
+### Unattended Hardening Guards
+* **Directory Scoping (`external_directory` Guard)**: The operator strictly scopes all scratch and temporary outputs to `$DIR/tmp.operator/`. It never references `/tmp`, `/var`, or root directories, preventing OpenCode or Claude Code security approval prompts from stalling autonomous sessions.
+* **Atomic Fetch-Dispatch Pairing**: A queue fetch (`fetch_batch_to_file.sh`) and the corresponding subagent dispatch (`task(...)`) must occur within the **same assistant turn**. A fetch without an immediate dispatch leaves cases locked in `processing`, creating queue stalls.
+* **Literal Heredoc Ingestion**: Markdown and JSONL evidence are staged via literal heredocs (`<<'EOF'`) to prevent unintended bash variable expansion of payloads containing `$()`, backticks, or backslashes.
 
 ---
 
-## 5. Agents
+## 4. The Streaming Case Pipeline (`cases.db`)
 
-| Agent | Role | Trigger |
-|---|---|---|
-| `operator` | coordinator; owns state and decisions | always |
-| `recon-specialist` | fingerprinting, dir fuzzing, port scans | initial + auth-respawn |
-| `network-analyst` | TCP/UDP service enumeration + testing | `ingested` + `service` |
-| `source-analyzer` | static HTML/JS/CSS analysis | `ingested` + source types |
-| `vulnerability-analyst` | bounded triage (1–2 probes/family) | `ingested` + API/form types |
-| `exploit-developer` | exploitation, chaining, impact | `vuln_confirmed` |
-| `fuzzer` | high-volume fuzzing (500+ payloads) | `fuzz_pending` |
-| `osint-analyst` | CVE/breach/DNS/social correlation | `intel.md` grew |
-| `report-writer` | final/interim report | end of cycle |
+### 4.1 Schema Definition (`agent/scripts/schema.sql`)
+The pipeline runs on SQLite with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`) and a 5000ms busy timeout.
 
-Finding IDs are prefixed per agent (`EX`, `VA`, `SA`, `RE`, `NA`, `FZ`, `OS`) and
-allocated under a lock by `append_finding.sh`.
+```sql
+CREATE TABLE IF NOT EXISTS cases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Request identity (HTTP)
+    method TEXT NOT NULL,
+    url TEXT NOT NULL,
+    url_path TEXT NOT NULL,
+
+    -- Pre-extracted structured parameters
+    query_params TEXT,
+    body_params TEXT,
+    path_params TEXT,
+    cookie_params TEXT,
+
+    -- Request details
+    headers TEXT,
+    body TEXT,
+    content_type TEXT,
+    content_length INTEGER,
+
+    -- Response telemetry
+    response_status INTEGER,
+    response_headers TEXT,
+    response_size INTEGER,
+    response_snippet TEXT,
+
+    -- Classification and routing
+    type TEXT NOT NULL DEFAULT 'unknown',
+    source TEXT NOT NULL,
+
+    -- Network service identity (for type='service')
+    host TEXT,
+    port INTEGER,
+    proto TEXT,
+    service TEXT,
+    service_product TEXT,
+    service_version TEXT,
+    banner TEXT,
+    scan_ref TEXT,
+
+    -- Lifecycle state management
+    status TEXT NOT NULL DEFAULT 'pending',
+    stage TEXT NOT NULL DEFAULT 'ingested',
+    assigned_agent TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+
+    -- Timestamps
+    created_at TEXT DEFAULT (datetime('now')),
+    consumed_at TEXT,
+
+    -- Deduplication signature
+    params_key_sig TEXT,
+
+    UNIQUE(method, url_path, params_key_sig)
+);
+```
+
+### 4.2 Deduplication Key (`params_key_sig`)
+To avoid re-testing identical endpoints with arbitrary parameter values:
+* HTTP cases calculate `params_key_sig = sha1(origin + sorted_param_keys)`.
+* Service cases set `method='SERVICE'`, `url_path='/<host>/<port>/<proto>'`, and `params_key_sig = sha1(proto|host|port|service)`.
+
+### 4.3 Ingestion Producers
+1. **`mitmproxy` (`proxy_addon.py`)**: Intercepts authenticated browser traffic, extracts structured headers, parameters, and cookies, and streams them directly into `cases.db`.
+2. **`Katana` (`katana_ingest.sh`)**: Crawls targets headlessly, parses DOM XHR endpoints and JavaScript endpoints, and classifies links.
+3. **`recon_ingest.sh`**: Ingests endpoints discovered by `nikto`, `whatweb`, and `gobuster`.
+4. **`spec_ingest.sh`**: Parses OpenAPI/Swagger JSON and YAML definitions into discrete HTTP operations.
+5. **`net_ingest.sh` & `netscan.sh`**: Parses Nmap XML (`-oX`) output and converts discovered TCP/UDP open ports into `type=service` cases.
+
+### 4.4 Stage-Based Routing Matrix
+
+Rather than imposing artificial phase walls, cases advance individually through discrete lifecycle stages:
+
+| Current Stage | Case Type | Target Subagent | Next Transition State |
+|---|---|---|---|
+| `ingested` | `service` | `network-analyst` | `vuln_confirmed` (primitive found) or `clean` |
+| `ingested` | `api`, `form`, `graphql`, `upload`, `websocket` | `vulnerability-analyst` | `vuln_confirmed`, `fuzz_pending`, or `api_tested` |
+| `ingested` | `javascript`, `page`, `stylesheet`, `data`, `unknown`, `api-spec` | `source-analyzer` | `source_analyzed` (carrier retired; new endpoints queued at `ingested`) |
+| `vuln_confirmed` | Any | `exploit-developer` | `exploited` (finding generated) or `clean` |
+| `fuzz_pending` | Any | `fuzzer` | `vuln_confirmed`, `api_tested`, or `clean` |
+| `source_analyzed` | Any | None (Terminal) | Retired carrier case |
+| `api_tested` | Any | None (Terminal) | Tested negative |
+| `exploited` | Any | None (Terminal) | Finding verified and recorded |
+| `clean` | Any | None (Terminal) | Non-vulnerable / out of scope |
+| `errored` | Any | None (Terminal) | Eligible for reset via `dispatcher.sh retry-errors` |
 
 ---
 
-## 6. Web vs TCP/UDP testing
+## 5. The Subagent Pool (8 Specialized Personas)
 
-**Web**: 15 HTTP types classified by `lib/classify.sh` (api, form, graphql, upload,
-websocket, api-spec, page, javascript, stylesheet, data, image, video, font, archive,
-unknown), tested by the web skills.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        SUBAGENT SPECIALIZATION                         │
+├──────────────────────┬──────────────────────────┬──────────────────────┤
+│ Subagent             │ Primary Reasoning Mode   │ Enabled Tools        │
+├──────────────────────┼──────────────────────────┼──────────────────────┤
+│ recon-specialist     │ Broad surface mapping    │ nmap, whatweb, nikto │
+│ network-analyst      │ Protocol enumeration     │ nmap, hydra, smbclient│
+│ source-analyzer      │ Static code analysis     │ grep, ast, js-beautify│
+│ vulnerability-analyst│ Bounded hypothesis test  │ curl, sqlmap, nuclei │
+│ exploit-developer    │ State chaining & exploit │ msfrpcd, custom PoC  │
+│ fuzzer               │ Statistical noise triage │ ffuf, wfuzz, seclists│
+│ osint-analyst        │ Cross-source correlation │ cve-search, dnsrecon │
+│ report-writer        │ Executive documentation  │ markdown, chart gen  │
+└──────────────────────┴──────────────────────────┴──────────────────────┘
+```
 
-**TCP/UDP services**: produced by `net_ingest.sh`/`netscan.sh`, tested by
-`network-analyst` using service skills:
-
-| Skill | Coverage |
-|---|---|
-| `network-service-testing` | general methodology + queue contract |
-| `smb-netbios` | SMB/RPC, null sessions, shares, relay, MS17-010 |
-| `database-services` | MySQL, MSSQL, PostgreSQL, MongoDB, Redis, Elasticsearch |
-| `remote-access-services` | SSH, RDP, VNC, Telnet |
-| `mail-dns-services` | SMTP/IMAP/POP3, DNS zone transfer |
-| `ldap-kerberos` | LDAP enum, AS-REP/Kerberoasting, delegation, ADCS |
-| `snmp-ftp-nfs` | SNMP community, FTP anon, NFS exports |
-
-Confirmed primitives (`stage=vuln_confirmed`) are exploited by `exploit-developer`
-(optionally via the Metasploit MCP).
-
-**Network engagements**: `/engage 10.10.10.5`, `/engage 10.0.0.0/24`, or
-`/engage 10.0.0.5-20` enters network mode (no Katana/mitmproxy). Scope entries may be
-CIDRs or ranges; `host_in_scope` matches them and `net_ingest.sh` drops out-of-scope hosts.
+1. **`recon-specialist`**: Performs network and web discovery. Re-evaluates target surfaces whenever valid credentials are saved to `auth.json`.
+2. **`network-analyst`**: Evaluates non-HTTP network infrastructure. Follows dedicated methodology skills for SMB, Active Directory, databases, and remote access.
+3. **`source-analyzer`**: De-obfuscates and analyzes client-side assets to identify unlinked endpoints, deprecated parameters, and hardcoded API tokens.
+4. **`vulnerability-analyst`**: Acts as a rapid gatekeeper. Limits analysis to 1–2 lightweight probes per vulnerability class to prevent rate-limiting and scanner bans.
+5. **`exploit-developer`**: Constructive attacker. Takes confirmed vulnerabilities, verifies full execution, escalates privileges, and interfaces with Metasploit RPC via stdio MCP.
+6. **`fuzzer`**: Dedicated high-volume testing engine. Takes cases tagged `stage=fuzz_pending` and executes deep dictionary fuzzing across query and POST parameters.
+7. **`osint-analyst`**: Triggered via `intel_changed_check.sh` whenever new company names, software versions, or usernames appear in `intel.md`.
+8. **`report-writer`**: Aggregates all documented findings from `findings.md`, verifies CVSS scores, checks remediation recommendations, and generates `report.md`.
 
 ---
 
-## 7. Lab profiles
+## 6. Lab Profiles & The Objective Closure Gate
 
-Profiles decouple lab-specific knowledge from the methodology. They live in
-`agent/labs/*.json`; the operator resolves one into `engagements/<…>/lab-profile.json`.
+To support CTF challenges and intentional vulnerability benchmarks without polluting generic agent prompts with target-specific spoilers, RedTeam Agent uses declarative lab profiles located in [`agent/labs/`](file:///root/red-team/agent/labs/):
 
-Schema highlights:
-
+### Declarative Schema
 ```jsonc
 {
-  "id": "juice-shop", "kind": "web-app", "priority": 100,
-  "match": { "hosts": [...], "ports": [...], "min_port_overlap": 3, "path_probes": [...] },
-  "objective": {
-    "type": "remote",           // remote | flag | declared | none | discover
-    "source": {"url": "/api/Challenges", "parser": "juice-shop"},
-    "checklist": ["Score Board", "..."]
+  "id": "juice-shop",
+  "kind": "web-app",
+  "priority": 100,
+  "match": {
+    "hosts": ["*juice-shop*"],
+    "ports": [3000],
+    "path_probes": ["/api/Challenges"]
   },
-  "recall_branches": [ {"objective": "...", "vuln_class": "...", "route": "...", "trigger": "..."} ]
+  "objective": {
+    "type": "remote", // remote | flag | declared | none | discover
+    "source": {
+      "url": "/api/Challenges",
+      "parser": "juice-shop"
+    },
+    "checklist": ["Score Board", "Confidential Document"]
+  },
+  "recall_branches": [
+    {
+      "objective": "Score Board",
+      "vuln_class": "info-disclosure",
+      "route": "/#/score-board",
+      "trigger": "search_source_for_hidden_paths"
+    }
+  ]
 }
 ```
 
-- **Detection**: host match, port match (including ports already ingested in `cases.db`
-  via `min_port_overlap`), or bounded HTTP path probes. `detect` never downgrades a
-  resolved specific profile to `generic`.
-- **Objective types**: `remote` (challenge API/scoreboard), `flag` (captured flags),
-  `declared` (local checklist, e.g. network/AD), `none` (plain pentest), `discover`
-  (probe candidates at runtime).
-- **Closure gate**: `lab_objective.py snapshot` reports solved-state; the operator must
-  resolve unresolved objectives (using `recall_branches`) before `report-writer`.
-  `finalize_engagement.sh` runs `lab_objective.py guard` as the last gate and **fails
-  closed** if an explicit objective source is unreachable.
-
-Built-in profiles: `generic`, `generic-web`, `generic-ctf`, `generic-network`,
-`juice-shop`, `dvwa`, `webgoat`, `bwapp`, `portswigger`, `metasploitable`,
-`hackthebox`, `vulnhub`, `tryhackme`.
-
-Tooling: `scripts/lab_objective.py {detect|list|snapshot|capture|guard|show}`.
+### Objective Lifecycle
+1. **Detection**: Upon `/engage`, `lab_objective.py detect` evaluates hostnames, active ports, and HTTP path probes to select the highest-priority matching profile.
+2. **Snapshot Tracking**: During testing, `lab_objective.py snapshot` queries local flag files or remote scoreboard APIs to identify solved and unsolved objectives.
+3. **Closure Guard**: Before the engagement can transition to `report` or `complete`, [`agent/scripts/finalize_engagement.sh`](file:///root/red-team/agent/scripts/finalize_engagement.sh) executes `lab_objective.py guard`. If declared objectives remain unaddressed, the guard **fails closed**, prompting the operator to investigate un-triggered recall branches.
 
 ---
 
-## 8. Runtimes
+## 7. Runtimes: Docker vs Bare-Metal Kali
 
-`scripts/lib/container.sh` dispatches on `REDTEAM_RUNTIME_MODE`:
+The environment abstraction layer in [`agent/scripts/lib/container.sh`](file:///root/red-team/agent/scripts/lib/container.sh) switches dynamically based on `REDTEAM_RUNTIME_MODE`:
 
-| Function | `docker` | `local` |
+| Operation | `docker` Mode (Default off-Kali) | `local` Mode (Bare-Metal Kali) |
 |---|---|---|
-| `run_tool <bin> …` | `docker run … kali-redteam <bin>` | host binary (or `rtcurl`) |
-| proxy | container | `mitmdump` |
-| Katana | container | `$KATANA_LOCAL_BIN` |
-| `check_docker`/`check_images` | validate | no-op success |
-| Metasploit | `docker compose up metasploit` | host `msfrpcd` |
-
-`.env` defaults are loaded non-destructively (explicit env wins) and tool paths
-autodetect (`configured → PATH → default`). Host-tool preflight/installer:
-`scripts/check_local_tools.sh [--install]`.
+| `run_tool <bin> <args...>` | Spawns transient `docker run kali-redteam <bin>` | Directly calls `<bin>` on host `PATH` |
+| Interception Proxy | Spawns `redteam-mitmproxy` container | Runs background `mitmdump` process |
+| Web Crawler | Spawns `redteam-katana` container | Executes local `$KATANA_LOCAL_BIN` |
+| Metasploit RPC | Spawns `docker compose up metasploit` | Starts local `msfrpcd` on port 55553 |
+| Tool Diagnostics | Validates Docker daemon and image integrity | Verifies host packages via `check_local_tools.sh` |
 
 ---
 
-## 9. Installation
+## 8. Artifacts & Outputs
 
-```bash
-./install.sh -h
-```
-
-| Product | Result |
-|---|---|
-| `docker` | all-in-one image + `run.sh` (isolated runtime) |
-| `opencode` | OpenCode config (`.opencode/`, skills, scripts, labs) |
-| `claude` | Claude Code config (generates `.claude/agents`, `CLAUDE.md`) |
-| `codex` | Codex config (generates `.codex/agents`, `AGENTS.md`) |
-| `kali` | bare-metal Kali: OpenCode files + `local` runtime + tool preflight (`--install` auto-installs) |
-
-On Kali, `opencode`/`claude`/`codex` auto-select `local` mode unless
-`REDTEAM_RUNTIME_MODE` is exported; `docker` always stays Docker.
-
----
-
-## 10. Commands
-
-`/engage <url|ip|cidr>`, `/autoengage <target>`, `/resume`, `/status`, `/proxy`,
-`/auth`, `/queue`, `/report`, `/stop`, `/confirm`, `/config`, `/subdomain`,
-`/vuln-analyze`, `/osint`, `/recon`, `/scan`, `/enumerate`, `/exploit`, `/pivot`.
-
----
-
-## 11. Outputs
-
-Per engagement (`engagements/<timestamp-target>/`): `scope.json`, `log.md`,
-`findings.md`, `report.md`, `intel.md`, `intel-secrets.json`, `auth.json`, `cases.db`,
-`surfaces.jsonl`, `lab-profile.json`, `objective-state.json`, plus `scans/`,
-`downloads/`, `tools/`, `pids/`.
-
-Sensitive: `intel-secrets.json`, `auth.json`, and any directory with live
-credentials/tokens/sessions.
-
----
-
-## 12. Extending
-
-- **Add a skill**: create `agent/skills/<name>/SKILL.md`; add it to the `instructions`
-  array in `agent/.opencode/opencode.json`.
-- **Add a lab profile**: drop `agent/labs/<id>.json` (see `agent/labs/README.md`).
-  No prompt edits needed.
-- **Add/modify an agent**: edit `agent/.opencode/prompts/agents/<name>.txt`, register it
-  in `opencode.json`, and re-run `install.sh` for generated CLIs. Operator changes go in
-  `agent/operator-core.md` and are rendered by `scripts/render-operator-prompts.sh`.
-- **References**: add files under `agent/references/<category>/` and update
-  `agent/references/INDEX.md`.
-
-Single-source rule: `agent/` is canonical; `.opencode/` prompts/commands are the source
-and `.claude/`/`.codex/` are generated at install time.
-
----
-
-## 13. Repository layout
+All engagement artifacts are recorded inside `engagements/<timestamp-target>/`:
 
 ```
-install.sh                install products
-agent/                    canonical agent runtime
-  .opencode/              OpenCode config, prompts, commands, plugins
-  operator-core.md        shared operator methodology (rendered to CLAUDE/AGENTS/operator.txt)
-  scripts/                queue engine, producers, gates, lab_objective.py, netscan.sh
-  skills/                 38 attack-methodology skills (web + TCP/UDP)
-  references/             79 reference files (OWASP, API, offensive tactics, AD)
-  labs/                   lab profiles
-  docker/                 Dockerfiles + compose
-orchestrator/             optional FastAPI + React web UI
-docs/                     documentation (this file, runtime + network guides)
+engagements/20260924-target-local/
+├── scope.json              # Engagement boundaries, target hostnames, CIDRs, and modes
+├── log.md                  # Comprehensive operator audit log and dispatch decisions
+├── findings.md             # Confirmed vulnerability findings with PoCs and CVSS
+├── report.md               # Final professional penetration test report
+├── intel.md                # Normalized summary of discovered credentials, hosts, and tech
+├── intel-secrets.json      # Full, un-redacted captured tokens, hashes, and passwords
+├── auth.json               # Active session cookies, Authorization headers, and API keys
+├── cases.db                # SQLite database with all evaluated endpoints and state
+├── surfaces.jsonl          # Attack surface ledger validating test coverage
+├── lab-profile.json        # Resolved target profile and active objective checklist
+└── scans/                  # Directory containing raw scanner output (Nmap XML, etc.)
 ```
 
----
-
-## 14. Verification / tests
-
-- `scripts/check_operator_prompt_contract.py`, `check_operator_respawn_contract.py`,
-  `check_sensitive_data_skill_contract.py`, `check_exploit_developer_prompt_contract.py`
-  — static prompt contracts (skip gracefully in installed runtimes).
-- `scripts/check_collection_health.sh`, `check_surface_coverage.sh` — pipeline gates.
-- `scripts/lab_objective.py guard` — objective closure gate.
-- `scripts/check_local_tools.sh` — host toolchain preflight.
+> [!CAUTION]
+> **Data Handling Notice**
+> 
+> The files `intel-secrets.json` and `auth.json` contain active authentication material and sensitive credentials discovered during testing. Never share these files without proper sanitization.

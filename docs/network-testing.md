@@ -1,81 +1,177 @@
-# Network Service Testing (TCP/UDP)
+# Network Service Testing Guide (TCP/UDP Infrastructure)
 
-The pipeline tests non-HTTP TCP/UDP services in addition to web apps. Service cases are
-first-class queue rows (`type=service`) routed to `network-analyst`, then to
-`exploit-developer` when a primitive is confirmed.
+> **Methodology and operational specification for scanning, enumerating, and testing non-HTTP TCP/UDP services.**
 
-## Model
+---
 
-- **Case columns** (`cases`): `host`, `port`, `proto`, `service`, `service_product`,
-  `service_version`, `banner`, `scan_ref`. HTTP cases leave these NULL.
-- **Identity/dedup**: `method='SERVICE'`, `url='<proto>://host:port'`,
-  `url_path='/host/port/proto'`, `params_key_sig=sha1(proto|host|port|service)`.
-- **Routing**: `type=service` + stage `ingested` → `network-analyst`;
-  `vuln_confirmed` → `exploit-developer`.
+## 1. Overview
 
-## Producer
+While traditional automated penetration testing frameworks focus almost exclusively on web applications, enterprise environments and realistic CTF challenges frequently pivot on **network infrastructure vulnerabilities**.
 
+RedTeam Agent treats network services as first-class citizens alongside web endpoints:
+* Evaluates protocol services: **Active Directory, Kerberos, SMB, RPC, database listeners, remote access protocols, mail, DNS, SNMP, and NFS**.
+* Integrates directly into the streaming case queue (`cases.db`) under `type=service`.
+* Routes tasks through the dedicated **`network-analyst`** subagent.
+* Escalates verified vulnerabilities to **`exploit-developer`** for chain construction.
+
+---
+
+## 2. Case Data Model for Services
+
+Network services populate the standard SQLite `cases` table with dedicated fields:
+
+```sql
+-- Network Service Columns in cases.db
+host             TEXT,       -- Target IP or hostname (e.g., '10.10.10.5')
+port             INTEGER,    -- Destination port (e.g., 445)
+proto            TEXT,       -- Protocol: 'tcp' or 'udp'
+service          TEXT,       -- Service name: 'smb', 'ldap', 'mysql', 'ssh'
+service_product  TEXT,       -- Detected daemon/software (e.g., 'OpenSSH')
+service_version  TEXT,       -- Version string (e.g., '8.9p1 Ubuntu')
+banner           TEXT,       -- Raw service banner or RPC response
+scan_ref         TEXT        -- Path to raw Nmap XML or tool output
+```
+
+### Identity and Deduplication
+To maintain consistency with the HTTP case model while preventing duplicate scans:
+* `method`: Hardcoded to `'SERVICE'`
+* `url`: Formatted as `'<proto>://<host>:<port>'` (e.g., `tcp://10.10.10.5:445`)
+* `url_path`: Formatted as `'/<host>/<port>/<proto>'`
+* `params_key_sig`: Calculated as `sha1(proto|host|port|service)`
+
+---
+
+## 3. Network Discovery Pipeline
+
+```
+     Target: CIDR / IP / Range
+                 │
+                 ▼
+     ┌───────────────────────┐
+     │   scripts/netscan.sh   │ ◄── Nmap TCP (-sV -sC) & UDP (--top-ports)
+     └───────────┬───────────┘
+                 │ Nmap XML (-oX)
+                 ▼
+     ┌───────────────────────┐
+     │  scripts/net_ingest.sh│ ◄── Scope Filtering (host_in_scope)
+     └───────────┬───────────┘     & Parameter Signature Generation
+                 │
+                 ▼
+     ┌───────────────────────┐
+     │ cases.db (type=service│ ◄── stage='ingested'
+     └───────────────────────┘
+```
+
+### Discovery Tools & Scripts
+
+#### 1. Automated Discovery Wrapper (`netscan.sh`)
+Scans targets via Nmap, generates structured XML, and automatically pipes results to `net_ingest.sh`:
 ```bash
-# One-shot TCP + UDP discovery + ingest (target defaults to scope.json)
+# Scan target defined in scope.json
 ./scripts/netscan.sh "$DIR"
+
+# Scan specific subnet with port constraints
 ./scripts/netscan.sh "$DIR" 10.0.0.0/24 --top-ports 100
+
+# Fast TCP-only scan against single host
 ./scripts/netscan.sh "$DIR" 10.10.10.5 --no-udp
+```
 
-# From nmap XML
+#### 2. Direct Nmap XML Ingestion (`net_ingest.sh`)
+Ingests pre-existing or manual Nmap scan artifacts:
+```bash
 ./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist --nmap-xml "$DIR/scans/nmap_tcp.xml"
+```
 
-# From JSONL (recon-specialist `#### Service Queue` block)
+#### 3. Streaming JSONL Ingestion
+Allows the `recon-specialist` agent to stream discovered open ports during reconnaissance:
+```bash
 echo '{"host":"10.0.0.5","port":445,"proto":"tcp","service":"smb","state":"open"}' \
   | ./scripts/net_ingest.sh "$DIR/cases.db" recon-specialist
 ```
 
-Only `state=open` / `open|filtered` rows are queued, and hosts outside `scope.json`
-are dropped. `netscan.sh` runs `nmap -sV -sC` (TCP) and `nmap -sU --top-ports`
-(UDP; raw sockets may need root) and ingests both. `nmap -oX` is the reliable path.
+> **Scope Enforcement**: `net_ingest.sh` evaluates target IPs against `scope.json`. Any host falling outside defined CIDRs, ranges, or hostnames is dropped before queueing.
 
-## Network engagement mode
+---
 
-```bash
-/engage 10.0.0.0/24      # or 10.10.10.5, 10.0.0.5-20
-```
+## 4. Network Engagement Mode
 
-`engage` detects an IPv4/CIDR/range target and enters network mode: no Katana, no
-mitmproxy. `scope.json` gets `"mode": "network"` and the scope list holds the CIDR/range.
-`host_in_scope` matches CIDR (`10.0.0.0/24`) and ranges (`10.0.0.5-20`).
+When initiating an engagement with an IP address, CIDR block, or range, RedTeam Agent automatically activates **network mode**:
 
 ```bash
-./scripts/dispatcher.sh "$DIR/cases.db" stats-by-stage
-# fetch-by-stage ingested service <limit> network-analyst
+# Subnet engagement
+/engage 10.0.0.0/24
+
+# Single host engagement
+/engage 10.10.10.5
+
+# IP range engagement
+/engage 10.0.0.5-20
 ```
 
-## Service skills
+### Behavioral Adjustments in Network Mode
+* **Web Crawlers Bypassed**: Katana crawler and `mitmproxy` intercepting proxy are not spawned.
+* **Scope Definition**: `scope.json` sets `"mode": "network"` and records CIDR ranges.
+* **Scope Evaluation**: `host_in_scope` handles CIDR subnet calculations (`ipcalc`/`python3 ipaddress`) and hyphenated ranges (`10.0.0.5-20`).
 
-| Skill | Coverage |
-|---|---|
-| `network-service-testing` | general methodology + queue contract |
-| `smb-netbios` | SMB/RPC, null sessions, shares, relay, MS17-010 |
-| `database-services` | MySQL, MSSQL, PostgreSQL, MongoDB, Redis, Elasticsearch |
-| `remote-access-services` | SSH, RDP, VNC, Telnet |
-| `mail-dns-services` | SMTP/IMAP/POP3, DNS zone transfer |
-| `ldap-kerberos` | LDAP enumeration, AS-REP/Kerberoasting, delegation, ADCS |
-| `snmp-ftp-nfs` | SNMP community, FTP anon, NFS exports/no_root_squash |
+---
 
-They cross-reference the existing `references/active-directory/` and
-`references/offensive-tactics/` material.
+## 5. Service Attack Methodology Skills
 
-## Depth and safety
+The `network-analyst` subagent operates according to 7 dedicated skills located in [`agent/skills/`](file:///root/red-team/agent/skills/):
 
-- `network-analyst` confirms a primitive (one bounded request, or a single Metasploit
-  `check`); `exploit-developer` owns full exploitation and chaining.
-- Every nmap command must be time-bounded (`--host-timeout` ≤120s, `--max-retries 2`).
-- Hydra is bounded (`-t 4 -W 5`, small candidate sets); no broad brute force.
-- Credentials/hashes/tickets found are written to `$DIR/auth.json` immediately.
+### 1. `network-service-testing`
+General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
 
-## Lab profiles
+### 2. `smb-netbios`
+* **Protocols**: SMB (TCP 445), NetBIOS (TCP 139), MSRPC (TCP 135).
+* **Techniques**: Null session and guest account enumeration (`enum4linux-ng`, `smbclient`), share discovery, write permissions, EternalBlue (MS17-010) check, and SMB signing evaluation.
 
-`labs/generic-network.json` (declared AD objectives), `labs/metasploitable.json`
-(service-exploit checklist), and selectable `labs/hackthebox.json` / `labs/vulnhub.json` /
-`labs/tryhackme.json` (user/root or task objectives) drive the objective/closure gate for
-network labs. Select a non-auto-detected profile with
-`python3 ./scripts/lab_objective.py detect "$DIR" --profile hackthebox`. Add your own under
-`agent/labs/` — no prompt edits needed.
+### 3. `database-services`
+* **Protocols**: MySQL (3306), MSSQL (1433), PostgreSQL (5432), MongoDB (27017), Redis (6379), Elasticsearch (9200).
+* **Techniques**: Default/blank credentials, unauthenticated Redis `CONFIG SET` or replication abuse, MongoDB exposed databases, MSSQL `xp_cmdshell` checks, and PostgreSQL `COPY ... FROM PROGRAM`.
+
+### 4. `remote-access-services`
+* **Protocols**: SSH (22), RDP (3389), VNC (5900), Telnet (23).
+* **Techniques**: SSH key and banner enumeration, weak cipher detection, BlueKeep (CVE-2019-0708) check on RDP, VNC unauthenticated access, bounded password spraying with discovered credentials.
+
+### 5. `mail-dns-services`
+* **Protocols**: SMTP (25/587), IMAP (143/993), POP3 (110/995), DNS (53).
+* **Techniques**: DNS zone transfers (`AXFR`), sub-domain brute forcing, recursive query amplification, SMTP user enumeration (`VRFY`/`EXPN`), and open relay verification.
+
+### 6. `ldap-kerberos`
+* **Protocols**: LDAP (389/636), Kerberos (88).
+* **Techniques**: Anonymous LDAP binding, Active Directory domain discovery, AS-REP Roasting (users with `DONT_REQ_PREAUTH`), Kerberoasting (Service Principal Names), and ADCS certificate template abuse.
+
+### 7. `snmp-ftp-nfs`
+* **Protocols**: SNMP (UDP 161), FTP (21), NFS (2049).
+* **Techniques**: Public/private SNMP community string brute-forcing (MIB enumeration), Anonymous FTP read/write checks, and NFS share mounting with `no_root_squash` analysis.
+
+---
+
+## 6. Safety Guardrails & Depth Constraints
+
+To avoid denial of service and scanner lockouts during infrastructure testing, RedTeam Agent enforces strict operational guardrails:
+
+* **Bounded Nmap Executions**: Nmap commands must specify `--host-timeout <= 120s` and `--max-retries 2`. Aggressive timing (`-T5`) is disallowed; `-T4` is standard.
+* **Controlled Brute Force**: Hydra operations are restricted to small candidate credential sets discovered during OSINT or recon (`-t 4 -W 5`). Blind, dictionary-wide brute force is forbidden.
+* **Credential Harvest & Immediate Persistence**: Any discovered usernames, hashes, or cleartext passwords must be written immediately to `$DIR/auth.json` to facilitate lateral movement across other services.
+
+---
+
+## 7. Lab Profiles for Network Engagements
+
+For network CTF challenges and lab targets, the objective closure gate is driven by dedicated lab profiles:
+
+| Profile | Target Environment | Objective Type |
+|---|---|---|
+| `generic-network.json` | General enterprise network / AD lab | Declared checklist (Domain Admin, Root, etc.) |
+| `metasploitable.json` | Metasploitable 2 / 3 targets | Known service vulnerability checklist |
+| `hackthebox.json` | HackTheBox machines | User (`user.txt`) and Root (`root.txt`) flags |
+| `vulnhub.json` | VulnHub VMs | Flag capture markers (`flag{...}`) |
+| `tryhackme.json` | TryHackMe challenge rooms | Flag or task objective checklists |
+
+To manually assign a specific network profile during initialization:
+```bash
+python3 ./scripts/lab_objective.py detect "$DIR" --profile hackthebox
+```

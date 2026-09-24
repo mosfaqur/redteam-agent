@@ -1,217 +1,155 @@
-# Sub-Agent Lifecycle Decisions
+# Subagent Lifecycle Decisions & Engineering Standards
 
-How to decide whether a sub-agent should be created, kept, merged, or retired.
-Reference this before changing anything under `.opencode/prompts/agents/` or
-`opencode.json` `agent` block.
+> **Architectural guidelines and governance standards for creating, activating, merging, and retiring AI subagents.**
 
 ---
 
-## When to read this
+## 1. Purpose & Application
 
-- A subagent is being proposed (new role)
-- A subagent has 0 dispatches for ≥3 consecutive observed cycles ("ghost")
-- A subagent's prompt is approaching the 25KB soft cap and someone wants to add more
-- Two subagents look like they overlap (skills, tooling, or reasoning mode)
+As autonomous multi-agent systems grow, they are prone to architectural degradation: prompt bloat, overlapping duties, and "ghost" subagents that consume maintenance overhead without executing work.
+
+This document establishes the **formal lifecycle standards** for RedTeam Agent. Consult this specification whenever:
+* Proposing a new subagent persona.
+* Triaging a subagent with zero observed dispatches across multiple runs ("ghost subagent").
+* Refactoring a subagent prompt approaching the **25KB soft size limit**.
+* Considering merging two subagents with seemingly overlapping responsibilities.
 
 ---
 
-## The merge-vs-keep framework (three questions)
+## 2. The Merge-vs-Keep Framework (The 3 Questions)
 
-Apply these EVERY time someone proposes merging two subagents OR retiring one
-into another. All three questions are pass/fail; the merge is justified only
-when all three answer "same/yes".
+Whenever evaluating whether to merge two subagents or absorb one into another, apply this 3-question test. **A merge is justified ONLY if all three questions pass with "Same / Yes".**
 
-### Q1 — Is the tool stack the same?
+```
+                  ┌─────────────────────────────────────────┐
+                  │ Q1: Is the tool stack identical?        │
+                  └────────────────────┬────────────────────┘
+                                       │
+                      YES              │ NO ──► DO NOT MERGE
+                                       ▼        (Different failure modes)
+                  ┌─────────────────────────────────────────┐
+                  │ Q2: Is the reasoning mode identical?    │
+                  └────────────────────┬────────────────────┘
+                                       │
+                      YES              │ NO ──► DO NOT MERGE
+                                       ▼        (Cognitive mode-switching churn)
+                  ┌─────────────────────────────────────────┐
+                  │ Q3: Is head-of-line blocking avoided?   │
+                  └────────────────────┬────────────────────┘
+                                       │
+                      YES              │ NO ──► DO NOT MERGE
+                                       ▼        (Long tasks block batch triage)
+                             ┌───────────────────┐
+                             │ MERGE JUSTIFIED   │
+                             └───────────────────┘
+```
 
-Look at the actual binaries / scripts / libraries each subagent invokes.
-Different tools = different failure modes, different output parsing,
-different retry semantics — keeping them apart limits blast radius.
+### Q1 — Is the tool stack identical?
+Evaluate the concrete CLI utilities, libraries, and protocols invoked:
+* Different tools exhibit different failure modes, exit codes, rate-limit responses, and error recovery patterns.
+* Merging disparate toolchains into a single agent inflates prompt instructions and expands the blast radius of operational failures.
 
-### Q2 — Is the reasoning mode the same?
+### Q2 — Is the cognitive reasoning mode identical?
+Subagents exhibit fundamentally different cognitive shapes:
+* **Bounded Hypothesis Testing** (`vulnerability-analyst`): Fast, targeted, 1–2 deterministic probes per vulnerability class.
+* **Statistical Noise Reduction** (`fuzzer`): High-volume pattern recognition across 1,000+ HTTP responses to filter anomalies.
+* **Cross-Source Correlation** (`osint-analyst`): Synthesizing external intelligence across unrelated breach data, DNS records, and CVE databases.
+* **Sequential Exploit Construction** (`exploit-developer`): State-dependent payload chaining, shellcode customization, and memory debugging.
 
-- "Per-case targeted analysis with 1-2 deep probes" (vulnerability-analyst)
-- "High-volume statistical noise reduction across 1000+ responses" (fuzzer)
-- "Cross-source correlation across many independent intel feeds" (osint-analyst)
-- "Sequential exploit chain construction with state tracking" (exploit-developer)
+> Forcing one agent prompt to mode-switch across differing cognitive paradigms degrades LLM accuracy and wastes context tokens on cognitive reorientation.
 
-These are genuinely different cognitive shapes. Forcing one subagent to
-mode-switch within a single session burns context budget on context-switching
-itself, not on the work. Keeping modes separate keeps each subagent's prompt
-focused.
+### Q3 — Does either side risk head-of-line blocking?
+If Agent A performs long-running background tasks (e.g., deep directory fuzzing lasting 10+ minutes) while Agent B handles sub-second per-case API triage, combining them into one agent forces queue triage to stall while the long task runs.
 
-### Q3 — Does either side need a long-running session that would block the other?
+### Evaluation Matrix
 
-If subagent A's typical task takes 5+ minutes (deep ffuf, full breach-DB query,
-metasploit module run) and subagent B's task is per-case sub-minute work,
-collapsing them means B's case batch processing gets stuck waiting for A's
-long task to finish. Separate subagents = separate sessions = no head-of-line
-blocking.
+| Q1 (Tool Stack) | Q2 (Cognitive Mode) | Q3 (No Blocking) | Action | Rationale |
+|---|---|---|---|---|
+| **Same** | **Same** | **Yes** | **Merge Justified** | True duplication of function. |
+| **Different** | Any | Any | **Do Not Merge** | Tool failure semantics will conflict. |
+| Any | **Different** | Any | **Do Not Merge** | Destroys prompt focus; high reasoning tax. |
+| Any | Any | **No** | **Do Not Merge** | Long tasks will choke high-throughput queues. |
 
-### Verdict matrix
+---
 
-| Q1 same? | Q2 same? | Q3 OK? | Action |
+## 3. Ghost Subagent Triage
+
+A **Ghost Subagent** is registered in `opencode.json` and assigned a system prompt, but records **0 dispatches across ≥3 consecutive complete engagement cycles**.
+
+> **Governance Rule**: Ghost subagents must be resolved within one engineering cycle. Never retain a subagent for "speculative future utility."
+
+### Three Valid Outcomes for Ghosts
+
+1. **Activate via Mechanical Trigger (Recommended)**: The role is legitimate, but the dispatch mechanism was missing or broken. Implement a mechanical trigger (Pattern A or B below).
+2. **Retire and Absorb**: Permissible only if all three merge questions pass, and absorbing the logic does not push the receiver prompt beyond the 25KB cap.
+3. **Delete Outright**: Remove the agent prompt and registry entry if the underlying capability is obsolete or replaced by external tools.
+
+---
+
+## 4. Standard Trigger Patterns
+
+Do not invent custom prose triggers. Autonomous subagent execution must rely strictly on one of two proven architectural trigger patterns:
+
+### Pattern A: Per-Case Stage Transitions
+Use when the subagent's task attaches to an **individual case** in `cases.db`.
+
+* **Mechanism**: Upstream agents transition a case's `stage` column by outputting a structured outcome:
+  ```markdown
+  ### Case Outcomes
+  DONE STAGE=fuzz_pending 104
+  ```
+* **Dispatch**: The Operator's stage-based dispatcher queries cases matching `status='pending' AND stage='<stage>'` and dispatches the assigned subagent.
+* **Example**: The `fuzzer` agent is activated when `vulnerability-analyst` triages an endpoint that requires wordlist fuzzing beyond its 500-entry inline budget.
+
+### Pattern B: Flag-File Watcher Scripts
+Use when the subagent's task represents **global, engagement-wide correlation** rather than a single endpoint case.
+
+* **Mechanism**: A dedicated shell script runs at the start of each operator loop tick:
+  1. Inspects a tracked artifact (`auth.json`, `intel.md`).
+  2. Compares current state against a high-water mark file (e.g., `.<thing>-respawn-state.json`).
+  3. If state expanded, writes an atomic flag file (e.g., `.<thing>-respawn-required`).
+* **Dispatch**: If the flag file exists, the Operator dispatches the subagent and deletes the flag upon completion.
+* **Examples**:
+  * `auth_respawn_check.sh`: Triggers `recon-specialist` when new credentials appear in `auth.json`.
+  * `intel_changed_check.sh`: Triggers `osint-analyst` when new entities are added to `intel.md`.
+
+---
+
+## 5. Architectural Anti-Patterns
+
+### Anti-Pattern 1: Prose-Only Dispatch Contracts
+* **The Failure**: Instructing an agent in prose: *"When you detect an interesting parameter, write 'NEEDS_FUZZING' in your response."*
+* **Outcome**: Frontier models frequently omit arbitrary conversational markers under high load. Dispatch rates drop to zero.
+* **Remedy**: Always use structured `### Case Outcomes` stage transitions or mechanical file-watching scripts.
+
+### Anti-Pattern 2: Merging Ghosts to "Tidy Up"
+* **Historical Case**: The `fuzzer` agent was previously merged into `vulnerability-analyst`. While this reduced the agent count, it violated Q2 (rapid triage vs deep statistical fuzzing) and Q3 (fuzz jobs blocked API triage). The merge was subsequently reverted.
+* **Remedy**: Fix the trigger mechanism; do not destroy specialization.
+
+### Anti-Pattern 3: Speculative Registration
+* **The Failure**: Registering an agent in `opencode.json` with a prompt, but without an active dispatcher pathway.
+* **Outcome**: Burns LLM system prompt context during CLI introspection with zero functional return.
+
+---
+
+## 6. Prompt Bloat Prevention Standards
+
+1. **25KB Prompt Soft Cap**: If an agent prompt exceeds 25KB, new domain logic must be moved to a helper script or skill reference (`agent/skills/`), with only a 1-line invocation hook in the prompt.
+2. **Reverse 3-Question Test**: Before adding a new capability to an existing agent, verify the 3 questions in reverse. If a merge would have been rejected, the additional capability must also be rejected.
+3. **Skill Name Verification**: Every skill referenced in an agent prompt must resolve to a valid directory in `agent/skills/`.
+
+---
+
+## 7. Active Subagent Reference Matrix
+
+| Subagent | Lifecycle State | Activation Trigger | Unique Cognitive Shape |
 |---|---|---|---|
-| ✓ | ✓ | ✓ | merge is justified |
-| ✗ | any | any | don't merge — different tools means different failure handling |
-| any | ✗ | any | don't merge — mode-switching within one session is expensive |
-| any | any | ✗ | don't merge — long tasks block short ones |
-
-If 2 of 3 lean against, **don't merge** — the merge will accumulate cost over
-time even if it looks tidy short-term.
-
----
-
-## Ghost subagent triage
-
-A "ghost subagent" is one with 0 dispatches across ≥3 consecutive observed
-cycles despite being registered in `opencode.json`. They look harmless but
-carry persistent maintenance cost (prompt sync, AUTHORIZATION block updates,
-finding-prefix bookkeeping, render script entries).
-
-**Rule: ghost subagents must be processed within one audit cycle of detection.
-Don't leave them in a "maybe useful someday" middle state.**
-
-Three valid outcomes for a ghost:
-
-1. **Activate via mechanical trigger** — the most common correct fix. The
-   subagent's job is real; only the dispatch signal was unreliable. See
-   "Trigger patterns" below.
-
-2. **Retire and absorb** — only if all three merge-framework questions pass
-   AND the absorbed responsibility doesn't push the receiver past 25KB
-   prompt size or its primary reasoning mode out of focus.
-
-3. **Delete outright** — only if the function is genuinely no longer needed
-   (e.g., the underlying capability was removed from the toolchain).
-
-Never leave a ghost subagent "for future use." If the trigger is unclear
-today, it'll be unclear forever.
-
----
-
-## Trigger patterns
-
-Two patterns cover all observed cases. Use them; don't invent new prose
-contracts that depend on an upstream agent remembering to emit a marker.
-
-### Pattern A: per-case stage transition
-
-Use when the subagent's work attaches to a SPECIFIC case in `cases.db`.
-
-How: add a new value to the `stage` column. Some upstream subagent's
-`### Case Outcomes` `DONE STAGE=<stage>` line transitions a case to that
-stage. Operator's stage-based dispatch table picks it up.
-
-Example: **fuzzer** (commit `93a3f54`).
-- `vulnerability-analyst` triages a case, decides it needs >500-entry fuzz
-- emits `DONE STAGE=fuzz_pending <id>` instead of advancing to `vuln_confirmed`
-- operator dispatches `fuzzer` on `stage=fuzz_pending`
-- `fuzzer` transitions case to `vuln_confirmed` / `api_tested` / `clean`
-
-When to use:
-- subagent acts on individual cases, not engagement-wide state
-- caller already produces `### Case Outcomes` (the structured contract is
-  free)
-- the dispatch is one-shot per case
-
-### Pattern B: flag-file watcher script
-
-Use when the subagent's work is engagement-wide and triggered by accumulated
-state, not a single case.
-
-How: write a small `<thing>_changed_check.sh` that:
-- reads the watched artifact (auth.json, intel.md, …)
-- compares against a `.<thing>-respawn-state.json` high-water mark
-- if state grew, writes a `.<thing>-respawn-required` flag with details
-- preserves the high-water mark across compactions (never lower it)
-- is idempotent (same content → no flag, even called repeatedly)
-
-Operator skill calls the check every tick. If the flag exists, dispatches
-the subagent and removes the flag.
-
-Examples:
-- **auth_respawn_check.sh** → re-dispatches `recon-specialist` + `source-analyzer`
-  when `auth.json.validated_credentials` grew
-- **intel_changed_check.sh** → dispatches `osint-analyst` when `intel.md`
-  filled-row count grew (commit `b5fe956`)
-
-When to use:
-- subagent does global / cross-source correlation, not single-case work
-- the dispatch isn't case-bound (osint queries intel.md as a whole; auth
-  re-recon respawns under new identity, not "for case X")
-- triggering is rate-limited (no need to fire per case)
-
----
-
-## Anti-patterns to avoid
-
-These were tried and rejected. Don't reintroduce them.
-
-### Anti-pattern: prose-only dispatch contract
-
-`vulnerability-analyst.txt` previously had: "When deeper fuzzing required,
-emit a `FUZZER_NEEDED` block." Across many engagements `FUZZER_NEEDED`
-appeared 0 times. Prose contracts that depend on an agent remembering to
-write a marker FAIL — agents don't reliably emit out-of-band markers.
-
-If you need a trigger, it has to be a STRUCTURED part of the agent's
-existing required output (Case Outcomes stage transition) OR a state-watcher
-script that doesn't depend on the agent at all (flag-file pattern).
-
-### Anti-pattern: merging a ghost into a busy receiver "to clean up"
-
-Merging fuzzer into vulnerability-analyst was tried (commit `e7ecbb5`,
-later reverted at `32fb11e`). It looked tidy — fewer subagents, less
-maintenance. But it failed Q2 (vulnerability-analyst's per-case probe mode
-vs fuzzer's high-volume statistical mode are different cognitive shapes)
-and Q3 (long ffuf runs would block v-analyst's case batches).
-
-**Lesson**: the ghost wasn't a sign the subagent was unnecessary; it was a
-sign the trigger was broken. Fix the trigger. Don't fold the role into a
-subagent that wasn't designed for it.
-
-### Anti-pattern: "we'll figure out the trigger later" with the subagent registered
-
-A subagent registered in `opencode.json` but with no working trigger
-contributes context overhead (prompt loaded for opencode session
-introspection) and maintenance overhead (AUTHORIZATION block sync, finding
-prefix mapping, etc.) without producing any value. If you can't write the
-trigger now (Pattern A or B), don't register the subagent yet.
-
----
-
-## Bloat prevention
-
-Hard rules to keep subagent prompts maintainable:
-
-- **25KB soft cap per subagent prompt.** Hitting it means the next addition
-  goes into a helper script + 1-line hook in the prompt, not a new
-  paragraph.
-- **No new responsibility into existing subagent without checking the three
-  merge questions in reverse.** If you'd reject the merge for those reasons,
-  reject the load too.
-- **Common blocks that appear verbatim in 4+ subagents** (e.g., SUBAGENT
-  BOUNDARY) should have a CI consistency check rather than be edited
-  in-place repeatedly.
-- **Skills lists** in subagent prompts must reference real `agent/skills/`
-  directory names. Drift between prompt-listed skills and actual skill
-  directories triggers an audit.
-
----
-
-## Reference cases
-
-| Subagent | Status | Trigger | Why kept/changed |
-|---|---|---|---|
-| operator | primary | always | entry point |
-| recon-specialist | active | initial discovery + auth-respawn flag | broad surface mapping |
-| network-analyst | active (Pattern A) | stage=ingested + type=service | TCP/UDP service testing mode unique |
-| source-analyzer | active (overdispatched, separate concern) | stage=ingested + type∈{js,page,…} | static-analysis mode unique |
-| vulnerability-analyst | active | stage=ingested + type∈{api,form,…} | main triage workhorse |
-| exploit-developer | active | stage=vuln_confirmed | chain-attack + exploit construction |
-| fuzzer | activated via Pattern A | stage=fuzz_pending | high-volume statistical mode unique |
-| osint-analyst | activated via Pattern B | intel.md filled-row delta | cross-source correlation unique |
-| report-writer | active | end-of-cycle | reporting concern unique |
-
-If the next ghost shows up, walk the framework, pick a pattern, write the
-trigger. Don't merge.
+| **`operator`** | Primary Engine | Always active | Global strategy, scope enforcement, delegation |
+| **`recon-specialist`** | Core Worker | Initial launch + `auth_respawn_check.sh` | Wide-scope discovery, network topology mapping |
+| **`network-analyst`** | Core Worker (Pattern A) | `stage=ingested` & `type=service` | Binary/protocol enumeration & service exploitation |
+| **`source-analyzer`** | Core Worker (Pattern A) | `stage=ingested` & `type∈{js, page, css}` | Static code analysis, regex pattern harvesting |
+| **`vulnerability-analyst`** | Core Worker (Pattern A) | `stage=ingested` & `type∈{api, form}` | Bounded hypothesis testing (1–2 probes/class) |
+| **`exploit-developer`** | Core Worker (Pattern A) | `stage=vuln_confirmed` | State-dependent payload chaining & PoC execution |
+| **`fuzzer`** | Activated (Pattern A) | `stage=fuzz_pending` | High-volume statistical noise reduction (>500 requests) |
+| **`osint-analyst`** | Activated (Pattern B) | `intel_changed_check.sh` flag | External entity and intelligence correlation |
+| **`report-writer`** | Core Worker | Completion gate (`active_stages == 0`) | Executive synthesis and risk communication |
