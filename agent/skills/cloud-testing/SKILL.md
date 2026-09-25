@@ -6,6 +6,8 @@ origin: RedteamOpencode
 
 # Cloud Testing
 
+Cross-provider ground floor: IMDS reachability, storage-ACL enumeration, snapshot/secret listing, Cognito/managed-identity/service-account inventory, cross-account trust/federation, Kubernetes credential overlap, and serverless/CI credential theft — all applied uniformly across AWS/Azure/GCP below. Once a foothold is confirmed on a specific provider, switch to that provider's deep-dive skill for the full IAM privilege-escalation chain catalog: `aws-security-testing`, `azure-security-testing`, or `gcp-security-testing`.
+
 ## When to Activate
 
 - AWS IMDS at `169.254.169.254`, Azure Instance Metadata Service, or GCP metadata host reachable

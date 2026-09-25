@@ -72,6 +72,9 @@
     "skills/llm-ai-security-testing/SKILL.md",
     "skills/message-queue-testing/SKILL.md",
     "skills/mobile-app-testing/SKILL.md",
+    "skills/aws-security-testing/SKILL.md",
+    "skills/azure-security-testing/SKILL.md",
+    "skills/gcp-security-testing/SKILL.md",
     "references/INDEX.md"
   ],
   "plugin": [

@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 18 dedicated skills located in [`agent/skills/`](../agent/skills/):
+The `network-analyst` subagent operates according to 21 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
@@ -191,7 +191,19 @@ General methodology orchestrator. Defines port-to-service classification, safe t
 * **Ports**: Kafka (9092/9093), RabbitMQ AMQP (5672/5671) and management API (15672), MQTT (1883/8883), ActiveMQ OpenWire (61616) and web console (8161), Redis Pub/Sub (6379, cross-referenced with `database-services`).
 * **Techniques**: Unauthenticated broker metadata/topic enumeration, wildcard MQTT subscription and retained-message disclosure, RabbitMQ management API topology dump and default-credential check, Kafka consumer-group hijacking, and version-mapped RCE primitives (ActiveMQ OpenWire deserialization, RabbitMQ Erlang-cookie exposure). Confirm-only: no publishing onto production business topics/queues.
 
-All eighteen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
+### 19. `aws-security-testing`
+* **Scope**: AWS-specific deep dive once a credential foothold is confirmed (`cloud-testing` covers the generic cross-provider ground floor first).
+* **Techniques**: Full IAM privilege-escalation chain catalog (`iam:PassRole` + Lambda/EC2/Glue/CloudFormation/SageMaker/CodeBuild, `iam:CreatePolicyVersion`, `iam:UpdateAssumeRolePolicy`, access-key/login-profile creation), S3 bucket-policy confused-deputy checks, Lambda environment/resource-policy/layer abuse, ECS/EKS task-role and IRSA-vs-node-role credential theft, and Secrets Manager/KMS/Parameter Store exposure.
+
+### 20. `azure-security-testing`
+* **Scope**: Azure/Entra ID-specific deep dive once a credential foothold is confirmed.
+* **Techniques**: RBAC/custom-role escalation catalog (`roleAssignments/write`, wildcard custom roles, ARM deployment + Automation Account chains), Managed Identity IMDS token theft across multiple `resource=` audiences and user-assigned identities, Key Vault access-policy-vs-RBAC confusion, storage shared-key-vs-RBAC bypass, Kudu/SCM console RCE via App Service deployment credentials, and Entra ID app/service-principal Graph-permission escalation (`RoleManagement.ReadWrite.Directory`, federated-credential subject-claim scoping).
+
+### 21. `gcp-security-testing`
+* **Scope**: GCP-specific deep dive once a credential foothold is confirmed.
+* **Techniques**: Service-account impersonation chain catalog (`iam.serviceAccounts.getAccessToken`/`signJwt`/`actAs` combined with Compute/Cloud Functions/Cloud Run/Cloud Build/Deployment Manager), default Compute Engine service-account over-scoping, Cloud Storage uniform-bucket-level-access gaps, BigQuery dataset/authorized-view exposure, and Workload Identity Federation / GKE Workload Identity attribute-condition misconfiguration.
+
+All twenty-one skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
 
 ---
 
