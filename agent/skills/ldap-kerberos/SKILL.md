@@ -72,7 +72,7 @@ run_tool GetUserSPNs.py DOMAIN/USER:PASS -dc-ip HOST -request -outputfile $DIR/s
 
 ### 5b. LDAP Signing & Channel Binding (relay prerequisite, confirm only)
 - [ ] LDAP signing requirement on DCs — the LDAP-side analog to SMB signing-disabled relay: `nxc ldap HOST -u USER -p PASS -M ldap-signing` or `nmap --script ldap-search -p 389 HOST`; a DC that does not require signing on cleartext LDAP (389) is a relay target.
-- [ ] LDAPS channel binding enforcement (post CVE-2017-8563 / 2020 hardening advisories): `ldapsearch -H ldaps://HOST -x -ZZ -b '' -s base` — confirm whether the server still completes a simple bind without a channel-binding token; an unenforced channel binding on LDAPS is what makes `ntlmrelayx`-to-LDAPS (and the ESC8 chain) viable even when LDAP signing alone is enforced on 389.
+- [ ] LDAPS channel binding enforcement (post CVE-2017-8563 / 2020 hardening advisories): `ldapsearch -H ldaps://HOST -x -b '' -s base` — confirm whether the server still completes a simple bind without a channel-binding token; an unenforced channel binding on LDAPS is what makes `ntlmrelayx`-to-LDAPS (and the ESC8 chain) viable even when LDAP signing alone is enforced on 389.
 - [ ] Report both signing and channel-binding state together as one relay-prerequisite finding — they are independently configurable and both must be enforced to close the relay path.
 
 Save every hash/ticket to `$DIR/scans/` and `$DIR/auth.json`; record usernames in `intel.md`.

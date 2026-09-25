@@ -206,15 +206,15 @@ curl -s "https://rapiddns.io/subdomain/target.com?full=1" | grep -oE '[a-zA-Z0-9
 # BufferOver / DNS.BufferOver — passive DNS dataset
 curl -s "https://dns.bufferover.run/dns?q=.target.com" | jq -r '.FDNS_A[]? | split(",")[1]' | sort -u
 
-# crt.sh via PostgreSQL interface (faster / avoids the JSON endpoint's rate limiting)
+# crt.sh certificate transparency JSON endpoint
 curl -s "https://crt.sh/?q=%25.target.com&output=json" -H "Accept: application/json" | jq -r '.[].name_value' | sort -u
 
 # ProjectDiscovery Chaos dataset (requires API key, curated bug-bounty subdomain lists)
 curl -s -H "Authorization: $CHAOS_API_KEY" "https://dns.projectdiscovery.io/dns/target.com/subdomains" | jq -r '.subdomains[]' | sed 's/$/.target.com/'
 
 # DNSDumpster-style web scrape fallback when API access isn't available
-curl -s "https://dnsdumpster.com/" -c cookies.txt -o /dev/null
-csrf=$(grep -oP 'csrfmiddlewaretoken.{0,80}value="\K[^"]+' /dev/null 2>/dev/null)  # requires session token scrape; prefer subfinder/crt.sh when this is brittle
+curl -s "https://dnsdumpster.com/" -c cookies.txt -o dnsdumpster.html
+csrf=$(grep -oP 'csrfmiddlewaretoken.{0,80}value="\K[^"]+' dnsdumpster.html 2>/dev/null)  # requires session token scrape; prefer subfinder/crt.sh when this is brittle
 
 # Merge everything into the master list before Stage 1 resolution
 cat "$ENGAGEMENT_DIR/scans/subdomains.txt" rapiddns.txt bufferover.txt chaos.txt | sort -u > "$ENGAGEMENT_DIR/scans/subdomains_merged.txt"

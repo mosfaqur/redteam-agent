@@ -117,7 +117,7 @@ Also test type confusion on boolean/numeric guarded fields: `"isAdmin":"true"` (
 
 Beyond privilege fields, target fields the server is expected to compute itself but which a lenient deserializer may accept from the client:
 - Timestamps: `createdAt`, `updatedAt`, `approvedAt` — backdating or forward-dating records
-- Relationship/ownership fields: `ownerId`, `userId`, `organizationId``, `tenantId` — reassigning an object to a different account/tenant on create rather than update
+- Relationship/ownership fields: `ownerId`, `userId`, `organizationId`, `tenantId` — reassigning an object to a different account/tenant on create rather than update
 - State-machine fields: `status`, `state`, `workflowStage` — jumping an object directly to an approved/shipped/paid state, skipping intermediate validation steps
 - Audit/version fields: `version`, `etag`, `revision` — forcing an optimistic-lock bypass
 

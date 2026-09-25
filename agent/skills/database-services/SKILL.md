@@ -67,7 +67,7 @@ hand the exploit to `exploit-developer`.
 
 ### 4b. Post-Access Privilege Escalation (confirm only)
 - [ ] MySQL: check `mysql.user` for `Grant_priv`/`Super_priv` on the connected account; a `FILE`-privileged low user combined with a web-writable path is a webshell chain
-- [ ] MSSQL: enumerate impersonation — `SELECT * FROM sys.server_permissions WHERE permission_name = 'IMPERSONATE'`; `EXECUTE AS LOGIN = 'sa'` if impersonable
+- [ ] MSSQL: enumerate impersonation — `SELECT * FROM sys.server_permissions WHERE permission_name = 'IMPERSONATE'`; a grant on `sa` is an escalation primitive, do not `EXECUTE AS` yourself — hand off to exploit-developer
 - [ ] PostgreSQL: check for `pg_read_server_files`/`pg_write_server_files` role membership on PG 11+ as a `COPY`-restriction bypass path
 
 ### 4c. Redis Unauth-to-RCE Primitives (confirm only, do not weaponize)

@@ -122,7 +122,7 @@ origin: RedteamOpencode
 - [ ] npm/pip/composer lockfiles reachable at web root (`package-lock.json`, `yarn.lock`, `composer.lock`, `Pipfile.lock`) — exact dependency versions for targeted CVE lookup via `osint-recon`
 - [ ] Source-control leftovers beyond `.git`: `.hg/`, `.bzr/`, `_darcs/`, `CVS/`
 
-### 9. Framework-Specific Verbose Error Signatures
+### 12. Framework-Specific Verbose Error Signatures
 
 - [ ] Django: `DEBUG = True` page shows full traceback, settings, installed apps, SQL query log
 - [ ] Laravel: Ignition/Whoops page shows stack trace, env vars, `.env` values inline
@@ -135,7 +135,7 @@ origin: RedteamOpencode
 - [ ] Next.js/Nuxt: dev-mode overlay leaks source file + component tree
 - [ ] Trigger a type-confusion or malformed-body error (e.g. send array where object expected) to force these pages when normal invalid input is caught gracefully
 
-### 10. Backup / Leftover File Pattern Depth
+### 13. Backup / Leftover File Pattern Depth
 
 - [ ] IDE/editor artifacts: `.idea/`, `.vscode/`, `*.sublime-project`, `Thumbs.db`
 - [ ] VCS metadata beyond `.git`: `.hg/`, `.bzr/`, `CVS/`, `_darcs/`

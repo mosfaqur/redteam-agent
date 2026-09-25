@@ -97,7 +97,7 @@ naabu gives a quick SYN-based port list to hand back into nmap for service/versi
 
 ```bash
 run_tool naabu -host TARGET -top-ports 1000 -rate 1000 -o $DIR/scans/naabu.txt
-PORTS=$(tr '\n' ',' < $DIR/scans/naabu.txt | sed 's/,$//')
+PORTS=$(sed -E 's/.*://' $DIR/scans/naabu.txt | tr '\n' ',' | sed 's/,$//')
 run_tool nmap -sV -sC -p "$PORTS" TARGET -oN $DIR/scans/nmap_from_naabu.txt
 ```
 

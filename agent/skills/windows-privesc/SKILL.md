@@ -140,7 +140,7 @@ Distinct from step 3's DLL/registry checks, enumerate the actual search-order ab
 
 ```bash
 run_tool nxc smb HOST -u USER -p PASS -x 'icacls "C:\Program Files\App"'
-run_tool nxc smb HOST -u USER -p PASS -x 'where /R C:\Windows System32\*.dll'
+run_tool nxc smb HOST -u USER -p PASS -x 'where /R C:\Windows\System32 *.dll'
 run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-Process | Select-Object Path,Modules"'
 run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs"'
 ```
@@ -154,7 +154,7 @@ Enumerate loaded and installed third-party kernel drivers for known-vulnerable s
 run_tool nxc smb HOST -u USER -p PASS -x 'driverquery /v /fo csv'
 run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-CimInstance Win32_SystemDriver | Select-Object Name,PathName,State"'
 run_tool nxc smb HOST -u USER -p PASS -x 'systeminfo'
-run_tool searchsploit windows kernel $(nxc smb HOST -u USER -p PASS -x 'systeminfo' 2>/dev/null | grep -i 'OS Version')
+run_tool searchsploit windows kernel "$(nxc smb HOST -u USER -p PASS -x 'systeminfo' 2>/dev/null | grep -i 'OS Version' | head -1)"
 ```
 
 Match driver file hashes/names against a known-vulnerable-driver list (e.g. loldrivers-style signed drivers with arbitrary read/write IOCTLs) and correlate `systeminfo`'s build number with unpatched local kernel CVEs; leave IOCTL exploitation to exploit-developer.

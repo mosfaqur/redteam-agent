@@ -283,7 +283,7 @@ PYEOF
 ```
 Manually triage hits: a high-entropy value near `key`, `secret`, `token`, `password`, `signature`, or `salt` in the preceding 40 characters is worth escalating; random-looking asset hashes/build IDs are common false positives.
 
-### Phase 1b: Entropy-Based Generic Secret Detection
+### Phase 1c: Entropy-Based Generic Secret Detection
 
 Regex families above only catch known key formats. New/custom secret formats (internal API
 tokens, rotated keys that no longer match a vendor prefix) need a Shannon-entropy pass instead:
@@ -370,7 +370,7 @@ run_tool curl -s -c - "$TARGET_URL" | while read -r line; do
 done
 ```
 
-### Phase 4: File Content Classification
+### Phase 5: File Content Classification
 
 For downloaded files (CSV, SQL dumps, logs, backups):
 
@@ -401,7 +401,7 @@ case "$FILE_TYPE" in
 esac
 ```
 
-### Phase 5: Database Extract Classification
+### Phase 6: Database Extract Classification
 
 After SQLi extraction, classify the data:
 
@@ -423,7 +423,7 @@ rg -oN '\$2[aby]?\$\d{2}\$[./A-Za-z0-9]{53}' "$EXTRACT_FILE"
 rg -oN '\b[A-Za-z0-9+/]{40,}={0,2}\b' "$EXTRACT_FILE"
 ```
 
-### Phase 6: Lab objective recall sweep
+### Phase 7: Lab objective recall sweep
 
 When the active profile (`lab-profile.json`) lists sensitive-data / public-file objectives, public file and data exposures are not finished after the first sensitive-data finding. Before marking the case done, run one bounded recall sweep that converts exposed artifacts into objective-triggering evidence. Consult the profile's `recall_branches` for the exact artifact paths and triggers.
 

@@ -29,7 +29,7 @@ Community strings (`public`, `private`, `cisco`) → system, interface, user, an
 credential disclosure.
 
 Additional SNMP checks:
-- [ ] SNMPv3 downgrade / weak auth: `snmp-check` with `-v3` to test whether the device also answers v1/v2c on the same community, bypassing v3 auth entirely
+- [ ] SNMPv3 downgrade / weak auth: `snmpwalk -v3 -l authPriv -u USER -a SHA -A AUTHPASS -x AES -X PRIVPASS HOST` (or `-l noAuthNoPriv`) to confirm whether the device also accepts weaker v1/v2c community strings on the same agent, bypassing v3 auth entirely
 - [ ] Write-access community strings (`private` often RW): confirm read-write with a single non-destructive `snmpset` on a scratch OID (e.g. `sysContact`), then revert — do not leave state changed
 - [ ] Cisco-specific OIDs for config/password disclosure: `1.3.6.1.4.1.9.9.96.1.1.1.1.8` (running-config) and `1.3.6.1.4.1.9.9.23.1.2.1.1.7` (CDP neighbor table) via `snmpwalk`
 - [ ] SNMP-to-RCE pivot: printers/network devices exposing SNMP write access to firmware/config paths — note as an escalation candidate, do not push firmware

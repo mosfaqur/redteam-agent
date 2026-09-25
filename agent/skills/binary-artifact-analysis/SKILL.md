@@ -81,7 +81,7 @@ For archive-like artifacts only, list entries first and extract no more than nee
 ```bash
 if file "$DIR/scans/artifact.bin" | grep -qiE 'gzip|zip|tar|cpio|xz|bzip2'; then tar -tf "$DIR/scans/artifact.bin" > "$DIR/scans/artifact.entries" 2>/dev/null || unzip -l "$DIR/scans/artifact.bin" > "$DIR/scans/artifact.entries" 2>/dev/null || true; fi
 grep -nEi 'passwd|shadow|authorized_keys|\.pem|\.key|\.crt|\.conf|\.ini|\.xml|\.json|id_rsa|database' "$DIR/scans/artifact.entries" > "$DIR/scans/artifact.interesting-entries" 2>/dev/null || true
-xxd "$DIR/scans/artifact.bin" | grep -niE 'hsqs|sqsh|squashfs|070701|1985031986|55424923|85190349|27051956|1f8b08' | head -5 > "$DIR/scans/artifact.filesystem-blobs.txt" 2>/dev/null || true
+xxd "$DIR/scans/artifact.bin" | grep -niE 'hsqs|sqsh|squashfs|070701' | head -5 > "$DIR/scans/artifact.filesystem-blobs.txt" 2>/dev/null || true
 grep -nEi 'u-boot|uboot|barebox|das u-boot|linux version|kernel panic|bootargs|/dev/mtdblock|jffs2|ubifs|yaffs|cramfs|initramfs' "$DIR/scans/artifact.strings" > "$DIR/scans/artifact.bootloader-hints.txt"
 ```
 

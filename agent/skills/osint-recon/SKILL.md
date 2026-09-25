@@ -236,7 +236,7 @@ for i in range(len(d)):
         variants.add(d[:i]+c+d[i+1:])                # substitution
 for v in variants:
     print(v+tld)
-" | head -50
+" | head -50 > candidates.txt
 
     # Bulk-resolve candidates to find registered lookalikes
     while read -r cand; do dig +short A "$cand" | head -1 | grep -q . && echo "$cand REGISTERED"; done < candidates.txt
