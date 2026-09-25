@@ -13,7 +13,7 @@
     <a href="ABOUT.md">About</a>
   </p>
   <p align="center">
-    <img src="https://img.shields.io/badge/CLI-Claude%20Code%20|%20OpenCode%20|%20Codex-blue" alt="CLI">
+    <img src="https://img.shields.io/badge/CLI-Claude%20Code%20|%20OpenCode%20|%20Codex%20|%20Antigravity-blue" alt="CLI">
     <img src="https://img.shields.io/badge/platform-macOS%20|%20Linux-blue" alt="Platform">
     <img src="https://img.shields.io/badge/runtimes-Docker%20|%20Bare--metal%20Kali-blue" alt="Runtimes">
     <img src="https://img.shields.io/badge/agents-9%20specialized-orange" alt="Agents">
@@ -27,7 +27,7 @@
 
 ## Overview
 
-**RedTeam Agent** is an autonomous offensive security framework that operates directly within developer AI command-line interfaces (**[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, and **[Codex](https://github.com/openai/codex)**). It transforms any workspace into a full-scale cyber operations command center for authorized penetration testing, adversary simulation, and CTF challenges.
+**RedTeam Agent** is an autonomous offensive security framework that operates directly within developer AI command-line interfaces (**[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, **[Codex](https://github.com/openai/codex)**, and **[Antigravity](https://antigravity.google/)**). It transforms any workspace into a full-scale cyber operations command center for authorized penetration testing, adversary simulation, and CTF challenges.
 
 By decoupling execution state from LLM conversational memory, RedTeam Agent pairs **9 specialized AI agent roles** with a streaming **SQLite case queue**, **containerized or bare-metal Kali Linux security tooling**, **64 offensive methodology skills**, and **79 curated security references**. It comprehensively addresses both **modern web applications** (APIs, GraphQL, SPAs, WebSockets) and **network infrastructure services** (Active Directory, Kerberos, SMB, databases, remote management), and extends into **host post-exploitation** (Linux/Windows privilege escalation, lateral movement), **cloud & container platforms** (Kubernetes, Docker, AWS/Azure/GCP), and **CI/CD pipelines**.
 
@@ -62,7 +62,7 @@ By decoupling execution state from LLM conversational memory, RedTeam Agent pair
 
 ## Key Capabilities
 
-* **Multi-CLI Native**: Operates out of the box with OpenCode, Claude Code, and OpenAI Codex through automated install-time prompt compilation.
+* **Multi-CLI Native**: Operates out of the box with OpenCode, Claude Code, OpenAI Codex, and Antigravity CLI through automated install-time prompt compilation.
 * **Deterministic Streaming Pipeline**: Replaces unpredictable, monolithic prompt conversations with a persistent SQLite queue (`cases.db`) and a zero-token shell dispatcher (`dispatcher.sh`).
 * **9 Dedicated Agent Personas**: Operator, Recon Specialist, Network Analyst, Source Analyzer, Vulnerability Analyst, Exploit Developer, Fuzzer, OSINT Analyst, and Report Writer.
 * **Dual Runtime Architecture**:
@@ -83,6 +83,7 @@ By decoupling execution state from LLM conversational memory, RedTeam Agent pair
   * [OpenCode](https://opencode.ai) (`npm install -g opencode-ai`) *(Recommended)*
   * [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
   * [Codex](https://github.com/openai/codex)
+  * [Antigravity](https://antigravity.google/) (`agy`)
 * **Runtime requirements**:
   * [Docker](https://docs.docker.com/get-docker/) with Docker Compose *(not required for bare-metal Kali runtime)*.
   * Base host utilities: `curl`, `jq`, `sqlite3`, `python3` (>= 3.11).
@@ -141,6 +142,15 @@ Generates Codex agent definitions at install time:
 
 cd ~/redteam-codex
 codex
+```
+
+#### 6. Antigravity CLI
+Generates Antigravity subagents (`.agents/agents/`), skills (`.agents/skills/`), and `AGENTS.md` at install time:
+```bash
+./install.sh agy ~/redteam-agy
+
+cd ~/redteam-agy
+agy
 ```
 
 ---

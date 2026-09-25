@@ -5,6 +5,7 @@
 #   ./install.sh opencode [target_dir]           Install for OpenCode
 #   ./install.sh claude [target_dir]             Install for Claude Code
 #   ./install.sh codex [target_dir]              Install for Codex
+#   ./install.sh agy [target_dir]                Install for Antigravity CLI (agy)
 #   ./install.sh docker [target_dir]             Install Docker all-in-one runtime
 #   ./install.sh --dry-run opencode              Validate without writing
 #   bash <(curl -fsSL URL) opencode ~/my-agent   Auto-clone and install
@@ -18,11 +19,12 @@
 set -e
 
 show_help() {
-  echo "Usage: $0 [--dry-run] [--force] [--install] <opencode|claude|codex|kali|docker> [target_dir]"
+  echo "Usage: $0 [--dry-run] [--force] [--install] <opencode|claude|codex|agy|kali|docker> [target_dir]"
   echo ""
   echo "  opencode  — Install for OpenCode (source files, no build needed)"
   echo "  claude    — Install for Claude Code (generates .claude/agents + commands)"
   echo "  codex     — Install for Codex (generates .codex/agents)"
+  echo "  agy       — Install for Antigravity CLI (generates .agents/agents + .agents/skills + AGENTS.md)"
   echo "  kali      — Bare-metal Kali Linux (OpenCode files + local runtime, no Docker)"
   echo "  docker    — Install the all-in-one Docker runtime with generated run.sh"
   echo ""
@@ -55,7 +57,7 @@ for arg in "$@"; do
     --force) FORCE_REBUILD=true ;;
     --install) INSTALL_TOOLS=true ;;
     -h|--help) show_help; exit 0 ;;
-    opencode|claude|codex|kali|docker) PRODUCT="$arg" ;;
+    opencode|claude|codex|agy|kali|docker) PRODUCT="$arg" ;;
     *) [ -z "$TARGET_DIR" ] && TARGET_DIR="$arg" ;;
   esac
 done
@@ -196,6 +198,13 @@ case "$PRODUCT" in
         fail "Codex not installed"
         ERRORS=$((ERRORS + 1))
     fi ;;
+  agy)
+    if command -v agy >/dev/null 2>&1; then
+        ok "Antigravity CLI: $(agy --version 2>&1 | head -1)"
+    else
+        fail "Antigravity CLI (agy) not installed (curl -fsSL https://antigravity.google/cli/install.sh | bash)"
+        ERRORS=$((ERRORS + 1))
+    fi ;;
   docker)
     ok "Docker-only install mode"
     ;;
@@ -293,6 +302,72 @@ build_codex_agent() {
   echo "  Built: $agent (.toml)"
 }
 
+# --- Helper: build Antigravity CLI subagent from .txt source ---
+build_agy_agent() {
+  local agent="$1" out_dir="$2"
+  local txt_file="$TXT_DIR/${agent}.txt"
+  [ -f "$txt_file" ] || { echo "  WARN: $txt_file not found" >&2; return; }
+
+  local desc tools_list tool
+  desc=$(jq -r ".agent[\"$agent\"].description" "$OPENCODE_JSON")
+  tools_list=""
+  for perm in read write edit bash glob grep; do
+    val=$(jq -r ".agent[\"$agent\"].$perm // false" "$OPENCODE_JSON")
+    if [ "$val" = "true" ]; then
+      case $perm in
+        read) tool="view_file" ;;
+        write|edit) tool="replace_file_content" ;;
+        bash) tool="run_command" ;;
+        glob) tool="glob" ;;
+        grep) tool="grep_search" ;;
+      esac
+      case " $tools_list " in
+        *" $tool "*) : ;;
+        *) tools_list="$tools_list $tool" ;;
+      esac
+    fi
+  done
+
+  mkdir -p "$out_dir"
+  {
+    echo "---"
+    echo "name: ${agent}"
+    echo "description: ${desc}"
+    echo "tools:"
+    for tool in $tools_list; do echo "  - $tool"; done
+    echo "subagent: true"
+    echo "mainAgent: false"
+    echo "commandExecutionPolicy: sandbox"
+    echo "---"
+    echo ""
+    cat "$txt_file"
+  } > "$out_dir/${agent}.md"
+  echo "  Built: $agent (.md)"
+}
+
+# --- Helper: convert OpenCode command .md files into Antigravity skills ---
+# Each command becomes a slash command (/<name>) via .agents/skills/<name>/SKILL.md
+build_agy_command_skills() {
+  local src_dir="$1" out_dir="$2" name title
+  mkdir -p "$out_dir"
+  for cmd_file in "$src_dir"/*.md; do
+    [ -f "$cmd_file" ] || continue
+    name=$(basename "$cmd_file" .md)
+    title=$(head -1 "$cmd_file" | sed -E 's/^#+ *Command: *//')
+    [ -n "$title" ] || title="RedTeam operator command"
+    mkdir -p "$out_dir/$name"
+    {
+      echo "---"
+      echo "name: $name"
+      echo "description: $title (RedTeam operator slash command)"
+      echo "---"
+      echo ""
+      cat "$cmd_file"
+    } > "$out_dir/$name/SKILL.md"
+    echo "  Built: command skill $name"
+  done
+}
+
 render_operator_prompts() {
   local mode="$1" out_dir="$2"
   "$SOURCE_DIR/scripts/render-operator-prompts.sh" "$mode" "$out_dir"
@@ -320,14 +395,14 @@ else
     mkdir -p "$INSTALL_DIR"
 
     # --- Detect upgrade: clean old installation, preserve engagements ---
-    if [ -d "$INSTALL_DIR/skills" ] || [ -d "$INSTALL_DIR/labs" ] || [ -d "$INSTALL_DIR/.opencode" ] || [ -d "$INSTALL_DIR/.claude" ] || [ -d "$INSTALL_DIR/.codex" ] || [ -d "$INSTALL_DIR/agent" ] || [ -f "$INSTALL_DIR/run.sh" ]; then
+    if [ -d "$INSTALL_DIR/skills" ] || [ -d "$INSTALL_DIR/labs" ] || [ -d "$INSTALL_DIR/.opencode" ] || [ -d "$INSTALL_DIR/.claude" ] || [ -d "$INSTALL_DIR/.codex" ] || [ -d "$INSTALL_DIR/.agents" ] || [ -d "$INSTALL_DIR/agent" ] || [ -f "$INSTALL_DIR/run.sh" ]; then
         warn "Existing installation detected in $INSTALL_DIR — upgrading"
         # Preserve engagement data and .env (user config)
         for keep in engagements .env auth.json workspace opencode-home opencode-config opencode-state; do
             [ -e "$INSTALL_DIR/$keep" ] && mv "$INSTALL_DIR/$keep" "/tmp/redteam-preserve-$keep" 2>/dev/null
         done
         # Remove old files
-        rm -rf "$INSTALL_DIR/.opencode" "$INSTALL_DIR/.claude" "$INSTALL_DIR/.codex" \
+        rm -rf "$INSTALL_DIR/.opencode" "$INSTALL_DIR/.claude" "$INSTALL_DIR/.codex" "$INSTALL_DIR/.agents" \
                "$INSTALL_DIR/skills" "$INSTALL_DIR/references" "$INSTALL_DIR/scripts" \
                "$INSTALL_DIR/docker" "$INSTALL_DIR/labs" "$INSTALL_DIR/CLAUDE.md" "$INSTALL_DIR/AGENTS.md" \
                "$INSTALL_DIR/.env.example" "$INSTALL_DIR/agent" "$INSTALL_DIR/run.sh" \
@@ -424,6 +499,40 @@ else
         render_operator_prompts codex-install "$INSTALL_DIR"
         ok "AGENTS.md (operator prompt)"
         # NO .opencode/, NO .claude/, NO CLAUDE.md
+        ;;
+
+      agy)
+        info "Copying shared files..."
+        for dir in skills references scripts docker labs; do
+          [ -d "$SOURCE_DIR/$dir" ] && cp -a "$SOURCE_DIR/$dir" "$INSTALL_DIR/"
+        done
+        mkdir -p "$INSTALL_DIR/engagements"
+        ok "Shared files (skills, references, scripts, docker, labs)"
+        if [ -f "$SOURCE_DIR/.env.example" ]; then
+            if [ -f "$INSTALL_DIR/.env" ]; then
+                ok ".env preserved"
+            else
+                cp "$SOURCE_DIR/.env.example" "$INSTALL_DIR/.env"
+                warn "Created $INSTALL_DIR/.env from template — update API keys before using passive recon tools"
+            fi
+        fi
+        info "Building and installing Antigravity CLI files..."
+        # Methodology skills -> .agents/skills/<name>/SKILL.md
+        mkdir -p "$INSTALL_DIR/.agents/skills"
+        cp -a "$SOURCE_DIR/skills/." "$INSTALL_DIR/.agents/skills/"
+        ok "Skills ($(find "$INSTALL_DIR/.agents/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ') methodology skills)"
+        # Operator commands -> skills (each becomes a slash command)
+        build_agy_command_skills "$SOURCE_DIR/.opencode/commands" "$INSTALL_DIR/.agents/skills"
+        # Subagents -> .agents/agents/<name>.md
+        mkdir -p "$INSTALL_DIR/.agents/agents"
+        for agent in $(jq -r '.agent | to_entries[] | select(.value.mode == "subagent") | .key' "$OPENCODE_JSON"); do
+          build_agy_agent "$agent" "$INSTALL_DIR/.agents/agents"
+        done
+        ok "Agents ($(find "$INSTALL_DIR/.agents/agents" -mindepth 1 -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ') subagents)"
+        # Operator prompt (AGENTS.md with Antigravity dispatch appendix) + operator wrapper
+        render_operator_prompts agy-install "$INSTALL_DIR"
+        ok "AGENTS.md (operator prompt) + .agents/agents/operator.md"
+        # NO .opencode/, NO .claude/, NO .codex/, NO CLAUDE.md
         ;;
 
       docker)
@@ -689,6 +798,11 @@ case "$PRODUCT" in
     echo "    cd $INSTALL_DIR && codex"
     echo "    engage http://your-ctf-target:port"
     ;;
+  agy)
+    echo "  Start:"
+    echo "    cd $INSTALL_DIR && agy"
+    echo "    /engage http://your-ctf-target:port"
+    ;;
   docker)
     echo "  Start:"
     echo "    cd $INSTALL_DIR && ./run.sh"
@@ -704,6 +818,7 @@ case "$PRODUCT" in
   kali)     echo "    .opencode/  skills/  references/  scripts/  labs/  (local runtime)" ;;
   claude)   echo "    .claude/    skills/  references/  scripts/  labs/  docker/  CLAUDE.md" ;;
   codex)    echo "    .codex/     skills/  references/  scripts/  labs/  docker/  AGENTS.md" ;;
+  agy)      echo "    .agents/    skills/  references/  scripts/  labs/  docker/  AGENTS.md" ;;
   docker)   echo "    agent/  run.sh  .env  workspace/  opencode-home/  opencode-config/  opencode-state/" ;;
 esac
 echo ""

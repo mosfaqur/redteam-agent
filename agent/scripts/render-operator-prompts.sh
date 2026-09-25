@@ -12,6 +12,7 @@ AGENTS_OUT="$OUTPUT_DIR/AGENTS.md"
 OPENCODE_OUT="$OUTPUT_DIR/.opencode/prompts/agents/operator.txt"
 CLAUDE_WRAPPER_OUT="$OUTPUT_DIR/.claude/agents/operator.md"
 CODEX_WRAPPER_OUT="$OUTPUT_DIR/.codex/agents/operator.toml"
+AGY_OPERATOR_OUT="$OUTPUT_DIR/.agents/agents/operator.md"
 
 render_banner() {
   cat <<'EOF'
@@ -167,6 +168,49 @@ This wrapper exists only so Codex can expose an operator entrypoint without dupl
 EOF
 }
 
+render_agy_dispatch_appendix() {
+  cat <<'EOF'
+
+## Antigravity Dispatch Syntax
+
+When running under Antigravity CLI (`agy`), the operator dispatches subagents with the
+`invoke_subagent` tool instead of `task(...)`. Everywhere the methodology says `task(...)`:
+
+- `task @<agent> ...` becomes `invoke_subagent("<agent>", ...)` targeting `.agents/agents/<agent>.md`
+- the `fetch_batch_to_file.sh` + `task(...)` atomic pair becomes fetch + `invoke_subagent` in the same turn
+- subagent results return as the subagent's final message; translate their `### Case Outcomes`
+  (`DONE STAGE=...` / `REQUEUE` / `ERROR`) to `dispatcher.sh done/requeue/error` exactly as in the rules
+- the subagents (recon-specialist, source-analyzer, vulnerability-analyst, exploit-developer,
+  fuzzer, osint-analyst, report-writer, network-analyst) are discovered from `.agents/agents/*.md`
+
+All other rules (stage state machine, stop conditions, exit gates, report finalization) are identical.
+EOF
+}
+
+render_agy_agents() {
+  render_agents
+  render_agy_dispatch_appendix >> "$AGENTS_OUT"
+  perl -0pi -e 's/\n+\z/\n/' "$AGENTS_OUT"
+}
+
+render_agy_operator_wrapper() {
+  mkdir -p "$(dirname "$AGY_OPERATOR_OUT")"
+  cat > "$AGY_OPERATOR_OUT" <<'EOF'
+---
+name: operator
+description: Lead red team operator. Drives pentest methodology, coordinates phases, dispatches subagents. Entry point for all engagements.
+mainAgent: true
+subagent: true
+commandExecutionPolicy: auto
+---
+
+You are the lead red team operator.
+
+Load and follow the complete operator instructions from AGENTS.md in the project root.
+This wrapper exists only so Antigravity can expose an `operator` agent entrypoint without duplicating prompt text.
+EOF
+}
+
 case "$MODE" in
   repo)
     render_claude
@@ -174,6 +218,7 @@ case "$MODE" in
     render_opencode
     render_claude_wrapper
     render_codex_wrapper
+    render_agy_operator_wrapper
     ;;
   claude-install)
     render_claude
@@ -184,8 +229,12 @@ case "$MODE" in
   opencode-install)
     render_opencode
     ;;
+  agy-install)
+    render_agy_agents
+    render_agy_operator_wrapper
+    ;;
   *)
-    echo "Usage: $0 [repo|claude-install|codex-install|opencode-install] [output-dir]" >&2
+    echo "Usage: $0 [repo|claude-install|codex-install|opencode-install|agy-install] [output-dir]" >&2
     exit 1
     ;;
 esac
