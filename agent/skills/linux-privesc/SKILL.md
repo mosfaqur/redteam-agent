@@ -101,7 +101,56 @@ run_tool uname -r
 run_tool searchsploit linux kernel
 ```
 
-### 7. Bounded Escalation Candidates
+### 7. Modern and Less-Common Vectors
+Check vectors that linpeas-style enumeration sometimes under-reports. Confirm each with a read-only observation, not execution.
+
+```bash
+run_tool busctl list 2>/dev/null # D-Bus services reachable by the current user
+run_tool ls -l /var/run/dbus /run/dbus 2>/dev/null
+run_tool pkexec --version 2>/dev/null # polkit/pkexec version for known CVEs (e.g. CVE-2021-4034)
+run_tool cat /etc/polkit-1/rules.d/*.rules 2>/dev/null
+run_tool systemctl list-sockets 2>/dev/null # socket-activated units triggerable by unprivileged connects
+run_tool find / -xdev -type f -name '*.timer' -o -name '*.socket' 2>/dev/null
+run_tool getcap -r / 2>/dev/null | grep -E 'cap_dac_read_search|cap_dac_override|cap_sys_admin|cap_sys_ptrace|cap_sys_module|cap_setuid'
+run_tool printenv PYTHONPATH LD_AUDIT PERL5LIB RUBYOPT NODE_OPTIONS
+run_tool cat /proc/sys/kernel/core_pattern
+run_tool apt-config dump 2>/dev/null | grep -i 'pre-invoke\|post-invoke' # apt/dpkg hook injection
+run_tool snap list 2>/dev/null; run_tool ls -l /snap 2>/dev/null
+run_tool grep -R -n 'env_keep\|!requiretty\|secure_path' /etc/sudoers /etc/sudoers.d 2>/dev/null
+```
+
+Map findings to their gadget class: `cap_dac_read_search`/`cap_dac_override` on a binary bypasses file-read/write DAC checks without full root; `cap_sys_ptrace` allows attaching to another user's process memory; `cap_sys_module`/`cap_sys_admin` are near-equivalent to root. A tar/rsync/find invocation running as a privileged cron job over an attacker-writable directory is a wildcard-injection candidate (`tar czf x.tgz *` → craft filenames starting with `--checkpoint=1` style flags) — record the exact cron line and writable directory rather than triggering it. Treat `env_keep` entries (especially `LD_PRELOAD`, `PYTHONPATH`, `BASH_ENV`) inside a `NOPASSWD` sudo rule as a direct escalation path, not just a candidate. A stale `pkexec`/`polkit` version pinned to a known CVE (e.g. CVE-2021-4034/PwnKit, CVE-2021-3560) is a confirm-only version match, not a proof — leave triggering to exploit-developer.
+
+### 8. Systemd Timer, Service, and Generator Hijack
+Beyond flagging a writable unit (step 5), enumerate the specific hijack primitives systemd exposes: `OnCalendar`/`OnBootSec` timers paired with a writable `ExecStart` target, `ExecStartPre`/`ExecStartPost` directives pointing at a writable helper, `WantedBy`/`Requires` drop-ins under a user-writable `/etc/systemd/system/UNIT.d/`, and systemd generators under `/run/systemd/generator` or `/lib/systemd/system-generators` that re-run on every boot/reload as root. Also check `systemd-run` delegation and D-Bus policy files that grant `org.freedesktop.systemd1.Manager` methods to non-root units.
+
+```bash
+run_tool systemctl list-timers --all
+run_tool find /etc/systemd/system /lib/systemd/system -name '*.timer' -exec cat {} \;
+run_tool find /etc/systemd/system -maxdepth 2 -type d -name '*.d' -ls
+run_tool find /run/systemd/generator /lib/systemd/system-generators -type f -ls 2>/dev/null
+run_tool cat /etc/dbus-1/system.d/*.conf 2>/dev/null | grep -B2 -A2 'org.freedesktop.systemd1'
+run_tool systemctl show UNIT -p ExecStartPre -p ExecStartPost -p ExecReload
+```
+
+A timer whose `ExecStart` binary or script directory is writable by the current user is a direct root-cron-equivalent; record the exact timer name, next trigger, and writable path rather than editing it here.
+
+### 9. Container-Escape-Adjacent Misconfiguration
+Extend step 6's container triage with the specific escape primitives rather than stopping at "privileged: true". Check for a writable `release_agent` combined with actual `cgroup.procs` write access (the full PoC chain, not just file presence), a mounted `/var/run/docker.sock` reachable from inside a container, `CAP_SYS_ADMIN`/`CAP_SYS_PTRACE`/`CAP_SYS_MODULE` retained in a container's effective set, a host PID or network namespace shared into the container (`--pid=host`, `--net=host`), and a writable `/proc/sys/kernel/core_pattern` or `/proc/sysrq-trigger` reachable through a shared procfs mount.
+
+```bash
+run_tool cat /proc/self/status | grep -i capeff
+run_tool nsenter --version 2>/dev/null
+run_tool ls -l /var/run/docker.sock /run/containerd/containerd.sock 2>/dev/null
+run_tool cat /proc/self/cgroup
+run_tool mount | grep -E 'cgroup|overlay|devpts'
+run_tool find / -xdev -maxdepth 3 -name '.dockerenv' -o -name '.containerenv' 2>/dev/null
+run_tool cat /proc/1/mountinfo 2>/dev/null | grep -E 'proc|sys'
+```
+
+Record the exact escape primitive present (docker.sock reachability, retained capability, or shared namespace) and the evidence path; do not `nsenter` into the host namespace or write to `release_agent` outside a bounded exploit-developer-owned confirmation.
+
+### 10. Bounded Escalation Candidates
 Rank candidates by required privilege, persistence side effects, and evidence quality. Confirm one vector at a time with `id`, a harmless file read, or a service-context observation; the actual chain belongs to exploit-developer.
 
 ### Lab objective recall closure

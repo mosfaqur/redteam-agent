@@ -49,7 +49,37 @@ for label, byte in (("newline", 10), ("NUL", 0)):
 PY
 ```
 
-### 3. Map Structure
+### 3. Check Variable-Length and Self-Describing Encodings
+
+Before committing to a fixed-width length field, test whether the protocol uses a variable-length integer scheme (Protobuf-style base-128 varint, LEB128) or a self-describing tag/length scheme (ASN.1 BER/DER, TLV-nested). These are common in RPC and industrial-control protocols and are easy to misidentify as fixed 2/4-byte lengths.
+
+```bash
+python3 - "$DIR/scans/first-response.bin" > "$DIR/scans/varint-candidates.txt" <<'PY'
+from pathlib import Path
+import sys
+raw = Path(sys.argv[1]).read_bytes()
+# Protobuf/LEB128-style varint: continuation bit is the high bit of each byte
+value, shift, consumed = 0, 0, 0
+for b in raw[:10]:
+    consumed += 1
+    value |= (b & 0x7f) << shift
+    if not (b & 0x80):
+        break
+    shift += 7
+print("varint-candidate value", value, "consumed-bytes", consumed)
+# ASN.1 BER/DER short/long-form length octet (second byte for a simple SEQUENCE)
+if len(raw) >= 2:
+    length_octet = raw[1]
+    if length_octet & 0x80:
+        print("ber-long-form length-of-length", length_octet & 0x7f)
+    else:
+        print("ber-short-form length", length_octet)
+PY
+```
+
+Record which candidate (fixed-width, varint, or BER/DER) stays consistent across multiple captured frames; do not commit to a framing model from a single sample.
+
+### 4. Map Structure
 
 Build one small `python3` parser under `$DIR/tools/` and reuse it in every later step. Map offsets and widths for magic, version, flags, opcode, length, checksum, sequence, and body; mark unknowns instead of guessing. Save the field map with the capture.
 
@@ -71,7 +101,7 @@ PY
 python3 "$DIR/tools/frame_parser.py" "$DIR/scans/first-response.bin" > "$DIR/scans/field-map.txt"
 ```
 
-### 4. Map the State Machine
+### 5. Map the State Machine
 
 Enumerate only observed client→server message types, the minimum handshake order, and per-message fields. Mark missing client traffic as unknown rather than inventing authentication. Record transitions in a table using observed labels:
 
@@ -87,7 +117,7 @@ python3 "$DIR/tools/frame_parser.py" "$DIR/scans/first-response.bin" > "$DIR/sca
 printf '%s\n' 'direction|message|fields|precondition|next_state' 'C->S|OBSERVED|record every observed field|document required predecessor|record only observed transition' > "$DIR/scans/state-machine.tsv"
 ```
 
-### 5. Discover Encoding and Cryptography
+### 6. Discover Encoding and Cryptography
 
 Compare repeated fields across frames. Run the analysis against the first response captured in step 1 (`first-response.bin`), or substitute `client-handshake.pcap` when a client handshake was captured. Test only evidence-guided XOR, ROT-like, short repeating-key, and base64-wrapped transformations. For length-prefixed encryption, record whether the prefix is plaintext and whether it is covered by the cipher. Check for RC4 or AES with static handshake keys/IVs, and extract keys/IVs from captured traffic or local client artifacts only—never guess keys or brute force.
 
@@ -107,9 +137,9 @@ PY
 if [ -s "$DIR/scans/first-response.b64" ]; then base64 -d "$DIR/scans/first-response.b64" > "$DIR/scans/first-response-decoded.bin"; fi; openssl list -cipher-algorithms > "$DIR/scans/openssl-ciphers.txt" 2>/dev/null || true; grep -nEi 'key|iv|nonce|rc4|aes|cipher|encrypt|decrypt' "$DIR/scans/client-fields.txt" > "$DIR/scans/crypto-markers.txt" 2>/dev/null || true
 ```
 
-### 6. Test Parser Attack Hypotheses
+### 7. Test Parser Attack Hypotheses
 
-Use exactly one malformed frame per hypothesis (within the 1-2 bounded-probe confirm bound), then stop: overlong length field, malformed/short frame, embedded NUL, integer overflow in size math, format-string characters, unescaped shell metacharacters in text-like fields, and command/opcode dispatch with no auth. Do not add variants or repeated streams.
+Use exactly one malformed frame per hypothesis (within the 1-2 bounded-probe confirm bound), then stop: overlong length field, malformed/short frame, embedded NUL, integer overflow in size math, format-string characters, unescaped shell metacharacters in text-like fields, command/opcode dispatch with no auth, and — when step 3 identified a varint or BER/DER-style length — one recursive/nested-length frame declaring a nested structure length larger than the outer frame (a common parser-recursion or over-read trigger distinct from a flat overlong length). Do not add variants or repeated streams.
 
 ```bash
 python3 - "$DIR/scans" <<'PY'
@@ -124,7 +154,7 @@ run_tool nc -nv -w 5 ${NC_UDP_FLAG:-} HOST PORT < "$DIR/scans/probe-overlong.bin
 run_tool nc -nv -w 5 ${NC_UDP_FLAG:-} HOST PORT < "$DIR/scans/probe-format.bin" || true; run_tool nc -nv -w 5 ${NC_UDP_FLAG:-} HOST PORT < "$DIR/scans/probe-shell.bin" || true; run_tool nc -nv -w 5 ${NC_UDP_FLAG:-} HOST PORT < "$DIR/scans/probe-unauth.bin" || true
 ```
 
-### 7. Confirm a Crash Safely
+### 8. Confirm a Crash Safely
 
 Send one bounded malformed frame only. Classify a clean error response, a hang, and a connection reset from the saved bytes and exit behavior. NEVER loop, NEVER send repeated/truncated streams; no flooding, destructive actions, or denial-of-service testing. A timeout alone is an observation, not an availability finding: rule 12 requires a repeatable server-side differential beyond one timeout.
 
@@ -139,7 +169,58 @@ run_tool nc -nv -w 5 ${NC_UDP_FLAG:-} HOST PORT < "$DIR/scans/probe-crash.bin" >
 printf '%s\n' 'clean error=response with error' 'hang=bounded timeout without response' 'reset=close/reset without response' > "$DIR/scans/crash-classification.txt"
 ```
 
-### 8. Hand Off
+### 9. Binary Diff Against a Known Version or Patch
+
+When a client or server binary is available locally and a prior/patched version can be obtained (vendor update, package repo cache, or a second firmware image), a binary diff often reveals the exact protocol field or opcode a patch changed — far faster than blind structure guessing. Use this only when both binaries are legitimately in scope/possession; never download a target's proprietary binary from an unauthorized source.
+
+```bash
+run_tool file "$DIR/tools/client-v1.bin" "$DIR/tools/client-v2.bin"
+python3 - "$DIR/tools/client-v1.bin" "$DIR/tools/client-v2.bin" > "$DIR/scans/binary-diff-strings.txt" <<'PY'
+import sys, re
+from pathlib import Path
+def strings(data, minlen=4):
+    return set(re.findall(rb'[\x20-\x7e]{%d,}' % minlen, data))
+a = strings(Path(sys.argv[1]).read_bytes())
+b = strings(Path(sys.argv[2]).read_bytes())
+print("added-in-v2:", len(b - a))
+for s in sorted(b - a)[:40]:
+    print("+", s.decode(errors="replace"))
+print("removed-from-v1:", len(a - b))
+for s in sorted(a - b)[:40]:
+    print("-", s.decode(errors="replace"))
+PY
+run_tool nm -D "$DIR/tools/client-v1.bin" > "$DIR/scans/symbols-v1.txt" 2>/dev/null || true
+run_tool nm -D "$DIR/tools/client-v2.bin" > "$DIR/scans/symbols-v2.txt" 2>/dev/null || true
+diff "$DIR/scans/symbols-v1.txt" "$DIR/scans/symbols-v2.txt" > "$DIR/scans/symbol-diff.txt" 2>/dev/null || true
+```
+
+New or renamed symbols, added validation-sounding strings (`invalid length`, `bounds check`, `truncated`), or a new opcode constant in the diff are strong hints for which field a vendor patched — cross-reference that field against the parser attack hypotheses in step 7 instead of testing every field blindly.
+
+### 10. Identify Fuzzable Fields Systematically
+
+Rank fields from the structure map (step 4) and state machine (step 5) by fuzz-worthiness before handing anything to `fuzzer` or exploit-developer: a length/size field feeding a buffer or allocation, an offset/index used to walk an array without an observed bounds check, a string/name field with no declared maximum, a nested tag/type field controlling which downstream parser branch runs, and any field whose value round-trips unchanged into a response (echoed fields are prime injection candidates). De-prioritize fields whose value never varies across captured frames (likely fixed magic/version).
+
+```bash
+python3 - "$DIR/scans/field-map.txt" > "$DIR/scans/fuzzable-fields.txt" <<'PY'
+import sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text().splitlines()
+rank = {"length": 1, "size": 1, "offset": 2, "index": 2, "opcode": 3, "flags": 3, "sequence": 4, "checksum": 5, "magic": 6, "version": 6}
+fields = []
+for line in lines:
+    for token in line.replace(",", " ").split():
+        key = token.split("=")[0].lower() if "=" in token else token.lower()
+        if key in rank:
+            fields.append((rank[key], key))
+for score, name in sorted(set(fields)):
+    print(score, name)
+PY
+printf '%s\n' 'priority: length/size fields > offset/index fields > opcode/type dispatch > echoed fields > sequence/checksum > fixed magic/version (skip)' >> "$DIR/scans/fuzzable-fields.txt"
+```
+
+Hand this ranked list to `fuzzer` or exploit-developer instead of an unranked field dump so mutation effort concentrates on fields most likely to reach an unchecked size/allocation/dispatch path.
+
+### 11. Hand Off
 
 Give exploit-developer the exact framed request bytes, field map, transport, state preconditions, expected and observed response, and one confirmed signal. Include capture and hexdump paths. Promote only after a reproducible unauthorized dispatch, exposed operation, or other concrete security signal; never promote a guess, missing client observation, timeout, or isolated crash.
 
@@ -158,4 +239,4 @@ Framing, state, encoding, and parser hypotheses are confirm-stage. A case moves 
 
 ## Budget
 
-`--host-timeout 120s`; at most 10 captured frames and 7 malformed probes per service; no loops, flooding, brute force, or denial-of-service testing.
+`--host-timeout 120s`; at most 10 captured frames and 8 malformed probes per service; no loops, flooding, brute force, or denial-of-service testing.

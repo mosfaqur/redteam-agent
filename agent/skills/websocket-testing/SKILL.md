@@ -104,6 +104,17 @@ POST /socket.io/?EIO=4&transport=polling&sid=<sid>    body: 42["<event>","<data>
 - [ ] Emit a named event with a `42["event",...]` payload and verify the server-side effect
 - [ ] Test whether event handlers validate the same auth as the WS upgrade (polling often bypasses it)
 
+### 10. Subprotocol & Extension Abuse
+
+- [ ] Check `Sec-WebSocket-Protocol` negotiation — some backends route to different handlers per subprotocol with inconsistent auth; try requesting an internal/admin subprotocol string directly
+- [ ] Check `Sec-WebSocket-Extensions: permessage-deflate` support — compression-oracle attacks (BREACH-style) are possible if attacker-influenced plaintext and secret data are compressed together in the same message
+- [ ] GraphQL-over-WebSocket (`graphql-ws`/`subscriptions-transport-ws`): test `connection_init` payload for auth bypass, and test whether subscription resolvers re-check authorization per-event or only at `connection_init`
+
+### 11. Handshake-Layer Request Smuggling / Header Injection
+
+- [ ] If any handshake header value (e.g. a custom auth header or `Sec-WebSocket-Protocol`) is built from user input server-side before being proxied upstream, test CRLF injection to smuggle additional headers into the upgrade request
+- [ ] Test whether a reverse proxy strips `Upgrade`/`Connection` correctly — malformed casing (`upgrade`, `UPGRADE`) or extra whitespace sometimes bypasses a WAF rule scoped only to the canonical header name
+
 ## What to Record
 
 - WebSocket endpoint URL and protocol

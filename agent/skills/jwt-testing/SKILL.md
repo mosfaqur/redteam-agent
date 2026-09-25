@@ -83,6 +83,27 @@ origin: RedteamOpencode
 - [ ] Check audience (`aud`) claim validation
 - [ ] Test tokens across environments (staging key on production)
 
+### 9. Algorithm-Confusion Variants Beyond RS256→HS256
+
+- [ ] `PS256`/`ES256` → `HS256`: same confusion attack applies to any asymmetric algorithm if the public key material is derivable and the verifier doesn't pin the expected algorithm family
+- [ ] `ES256` curve-confusion: some libraries accept a malformed/degenerate ECDSA signature (`r=0` or `s=0`) as valid — test with an all-zero signature
+- [ ] Algorithm downgrade within family: force `RS512`→`RS256` if the verifier accepts any `RS*` and a weaker variant has known library bugs
+- [ ] Check if the server's JWT library has a known CVE for the detected `alg`/library combo (grep `intel.md` for the framework/library version and cross-reference)
+
+### 10. `kid` Path and SSRF Variants
+
+- [ ] `kid` path traversal to a predictable local file with known/empty content: `/dev/null`, `/proc/sys/kernel/randomize_va_space` (constant value), a static app asset
+- [ ] `kid` pointing at a log file the attacker can poison first (log injection → forge the HMAC key by writing a known string into the log, then sign with it)
+- [ ] `jku`/`x5u` SSRF: even if the app validates the JWKS response's key ID rather than blindly trusting it, the fetch itself may be an SSRF primitive against internal hosts — chain into `ssrf-testing`
+- [ ] `jku` domain-allowlist bypass: subdomain confusion (`jwks.attacker-controlled-cdn.trusted-domain.com` if the allowlist is a suffix match), open redirect on the trusted domain that 302s to attacker JWKS
+
+### 11. Signature-Stripping and Parser Differentials
+
+- [ ] Duplicate `alg` header keys — some parsers use the first occurrence for validation logic but the last for actual algorithm selection (or vice versa): `{"alg":"HS256","typ":"JWT","alg":"none"}`
+- [ ] Whitespace/casing/encoding variance in the header JSON before base64url — different JSON parsers may tolerate what the signature-verification code was tested against, causing a parser differential
+- [ ] Truncate the signature segment progressively (`header.payload.AAA` → `header.payload.A`) to check if any prefix-matching or leniency exists
+- [ ] Swap final `.` handling: some frameworks split on `.` naively — try appending trailing garbage after a valid signature (`header.payload.sig.extra`) to see if it's ignored rather than rejected
+
 ## What to Record
 
 - Token algorithm and claims structure

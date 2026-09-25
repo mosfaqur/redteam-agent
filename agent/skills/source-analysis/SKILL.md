@@ -64,6 +64,20 @@ grep -n -m 80 -E 'fetch\(|axios\.|XMLHttpRequest|\.open\(|/rest/|/api/|/#/' down
 - SPA routes: React `path="/..."`, Vue `{ path: }`, Angular `{ path: }`
 - Secrets: `api_key`, `token`, `secret`, `password` assignments; AWS `AKIA[A-Z0-9]{16}`; JWT `eyJ...`
 - Webpack: chunk manifest, chunk URLs, `window.__INITIAL_STATE__`
+- Extended secret patterns worth a dedicated grep pass (`grep -nEo` with these patterns, capped output):
+  - AWS secret key: `(?i)aws(.{0,20})?secret[^'"]*['"][0-9a-zA-Z/+]{40}['"]`
+  - GCP API key: `AIza[0-9A-Za-z\-_]{35}`
+  - GCP service-account JSON marker: `"type":\s*"service_account"`
+  - Azure connection string: `AccountKey=[A-Za-z0-9+/=]{80,}`
+  - Slack token: `xox[baprs]-[0-9A-Za-z-]{10,}`
+  - Stripe key: `sk_(live|test)_[0-9a-zA-Z]{24}`
+  - GitHub token: `gh[pousr]_[A-Za-z0-9]{36,}`
+  - Generic PEM private key header: `-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----`
+  - Firebase config object: `apiKey["']?\s*:\s*["'][^"']+["']` near `authDomain`/`databaseURL`
+  - Google Maps / generic third-party API keys embedded client-side (lower severity but still worth recording as `info-disclosure-testing` context)
+- Environment-variable leakage: `process.env\.[A-Z_]+`, `import\.meta\.env\.[A-Z_]+` baked into a bundled build often embeds values that were meant to be build-time-only server secrets
+- `localStorage.setItem/getItem` and `sessionStorage` key names — enumerate them to know what client-trusted state exists before testing IDOR/auth-bypass on the endpoints that read them
+- Feature-flag / kill-switch objects (`featureFlags`, `__flags__`, `config.experiments`) — flipping a client-evaluated flag can unlock UI for admin/beta functionality even when the server never validates it
 - When matches explode because of minified code, narrow the regex and rerun instead of accepting giant output
 - Preserve concrete SPA/hash routes in your structured output. Do **not** collapse them into a generic note like “hidden routes found”. If the bundle reveals a real client-side route (for example a hidden page, admin panel, legal/policy view, review/feedback/cart/register flow, or sandbox screen), keep the exact route string and hand it back as a route/surface candidate.
 - When a route is clearly client-rendered rather than a standalone server endpoint, emit it as a `dynamic_render` surface candidate (or `auth_entry` when it is clearly a login/register/auth screen) so surface coverage can materialize a bounded page visit later.
@@ -95,6 +109,60 @@ This creates `api-spec` cases that should stay with `source-analyzer` long enoug
 Fetch `.map` only when there is an explicit source map reference or saved map artifact. Do not brute-force nonexistent maps.
 
 When a map exists, extract just the `sources` array and the specific source files needed for the case at hand instead of dumping the whole map.
+
+If the map is a full `.js.map` (not just a `//# sourceMappingURL` reference), the `sourcesContent`
+field often embeds the ENTIRE pre-bundled original source tree in plaintext — this is a far
+higher-value target than the minified bundle itself:
+
+```bash
+jq -r '.sourcesContent // empty | .[]' "$DIR/scans/app.js.map" 2>/dev/null | head -c 200000 > "$DIR/scans/reconstructed_sources.txt"
+jq -r '.sources[]' "$DIR/scans/app.js.map" 2>/dev/null   # original file paths — often reveal internal project/module naming
+grep -nE 'api_key|secret|password|TODO|FIXME|XXX|internal|debug' "$DIR/scans/reconstructed_sources.txt" | head -50
+```
+A leaked `sourcesContent` array is itself a finding (full original source disclosure) independent of anything found inside it.
+
+### 7. WASM, Service Workers, and Non-JS Client Assets
+
+- WebAssembly modules (`.wasm`) can embed business logic (pricing, licensing, anti-cheat, crypto)
+  that's otherwise server-side elsewhere — `strings <file>.wasm | grep -iE 'key|secret|url|admin'`
+  and note the module for `binary-artifact-analysis` if deeper reversing is warranted.
+- Service workers (`sw.js`, `service-worker.js`) intercept and cache requests; read their
+  `fetch` handler and `caches.open()` calls — a cached response containing auth tokens or PII
+  persists client-side even after logout if the SW doesn't clear it.
+- Web App Manifest (`manifest.json`) and `.well-known/assetlinks.json`/`apple-app-site-association`
+  reveal linked native app package/bundle IDs — pivot into `mobile-app-testing` if a companion
+  app exists.
+- GraphQL clients often ship a persisted-query manifest (`persisted-queries.json` or a hash map in
+  the bundle) — extracting the full query text from a hash-keyed persisted query can reveal fields
+  a live introspection probe would otherwise have blocked; hand full extracted queries to `graphql-testing`.
+
+### 8. Webpack Chunk & Module-Federation Enumeration
+
+Lazy-loaded routes/features often live in chunks never referenced by the initially-loaded
+bundle — the chunk map itself is a route/feature index:
+
+```bash
+grep -noE '\{[0-9]+:"[a-f0-9]{8,20}"' downloads/main.js | head -50          # webpack chunk-id -> hash map
+grep -noE '__webpack_require__\.e\("?[0-9a-zA-Z_-]+"?\)' downloads/main.js | sort -u  # dynamic import triggers
+grep -noE 'remoteEntry\.js|exposes\s*:\s*\{[^}]*\}' downloads/main.js       # Module Federation remotes — each exposed module is a separately loadable surface
+```
+Each distinct chunk hash resolves to `/<path>/<chunkid>.<hash>.chunk.js` (or `.js` depending on
+output config) — fetch chunks referenced by feature-sounding names (`admin`, `settings`,
+`billing`) before generic numeric ones; low-value numeric/vendor chunks are pruned by the
+operator's `prune_vendor_cases.py` step downstream, so don't hand-filter them here.
+
+### 9. Parameter & Route Mining for Downstream Fuzzing
+
+Source analysis is the highest-signal source of real parameter names for `parameter-fuzzing` —
+don't just note "API calls found," extract the actual argument/field names:
+
+```bash
+grep -noE '(fetch|axios\.\w+)\([^)]*\)' downloads/main.js | grep -oE '[?&][a-zA-Z_][a-zA-Z0-9_]*=' | sed 's/[?&]//;s/=//' | sort -u
+grep -noE '(body|params|data)\s*:\s*\{[^}]{0,300}\}' downloads/main.js | grep -oE '[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:)' | sort -u
+```
+Hand the resulting name list to `parameter-fuzzing` as a JS-mined wordlist rather than leaving
+it embedded only in prose notes — a concrete file the fuzzer can `-w` directly is higher value
+than a paraphrase in the handoff.
 
 ## Priority Order
 

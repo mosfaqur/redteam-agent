@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 17 dedicated skills located in [`agent/skills/`](../agent/skills/):
+The `network-analyst` subagent operates according to 18 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
@@ -187,7 +187,11 @@ General methodology orchestrator. Defines port-to-service classification, safe t
 * **Ports**: Tomcat manager, phpMyAdmin, Druid, Grafana, Kibana, and generic admin panels on common management ports (8080, 8443, 8888, 3000, 5601, 9090).
 * **Techniques**: Console fingerprinting and version mapping, a bounded default-credential check (static list, no spray), console-specific unauthenticated disclosure (monitor/status/datasource/query viewers), and broken function-level authorization on admin methods. Promotion is confirm-only; exploitation hands to `exploit-developer`.
 
-All seventeen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
+### 18. `message-queue-testing`
+* **Ports**: Kafka (9092/9093), RabbitMQ AMQP (5672/5671) and management API (15672), MQTT (1883/8883), ActiveMQ OpenWire (61616) and web console (8161), Redis Pub/Sub (6379, cross-referenced with `database-services`).
+* **Techniques**: Unauthenticated broker metadata/topic enumeration, wildcard MQTT subscription and retained-message disclosure, RabbitMQ management API topology dump and default-credential check, Kafka consumer-group hijacking, and version-mapped RCE primitives (ActiveMQ OpenWire deserialization, RabbitMQ Erlang-cookie exposure). Confirm-only: no publishing onto production business topics/queues.
+
+All eighteen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
 
 ---
 

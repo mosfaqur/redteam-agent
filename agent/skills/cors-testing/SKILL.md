@@ -64,6 +64,16 @@ origin: RedteamOpencode
 - [ ] Test if server enforces CORS only on OPTIONS but not on actual request
 - [ ] Change Content-Type to `text/plain` to avoid preflight
 
+### 6b. Parser Differential & Regex Origin-Validation Flaws
+
+- [ ] Case sensitivity: `Origin: https://TARGET.com` vs allowlist logic expecting lowercase
+- [ ] Missing anchors in allowlist regex: `target.com` unanchored matches `nottarget.com` or `target.com.attacker.net` — probe both prefix and suffix injection
+- [ ] Port/scheme confusion: `Origin: http://target.com:443` or `Origin: https://target.com:80` — some validators strip/ignore port or scheme when comparing
+- [ ] Multiple Origin headers or Origin header duplicated with different casing to confuse header-parsing middleware differences (proxy vs app-server)
+- [ ] Trailing dot: `Origin: https://target.com.` — DNS-equivalent but string-distinct from allowlist entry
+- [ ] Underscore/hyphen homograph subdomains if the app auto-provisions subdomains (`target-com.attacker.com`, `targetacom.com`)
+- [ ] Unicode/punycode confusable domains if IDN subdomains are in scope: `xn--` normalized forms that string-match differently pre/post normalization
+
 ### 7. Build Exploitation PoC
 
 - [ ] Data theft PoC:

@@ -69,6 +69,9 @@
     "skills/web-admin-console-testing/SKILL.md",
     "skills/sandboxed-code-execution/SKILL.md",
     "skills/resource-exhaustion-testing/SKILL.md",
+    "skills/llm-ai-security-testing/SKILL.md",
+    "skills/message-queue-testing/SKILL.md",
+    "skills/mobile-app-testing/SKILL.md",
     "references/INDEX.md"
   ],
   "plugin": [

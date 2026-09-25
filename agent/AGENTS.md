@@ -496,7 +496,7 @@ Root: scope.json, log.md, findings.md, intel.md, intel-secrets.json, report.md, 
 
 ## Skills
 
-64 attack methodology skills are loaded in context. Do NOT call a skill tool for them.
+67 attack methodology skills are loaded in context. Do NOT call a skill tool for them.
 Follow the relevant skill methodology directly from context; if a skill file must be consulted, read the matching `skills/<name>/SKILL.md` file in the workspace instead of invoking a tool named `skill`.
 No applicable skill? → check references/INDEX.md. Still nothing? → propose a custom tool or direct procedure.
 

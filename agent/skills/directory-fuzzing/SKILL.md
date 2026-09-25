@@ -137,7 +137,107 @@ run_tool ffuf -u https://TARGET -w /usr/share/seclists/Discovery/DNS/subdomains-
   -H "Host: FUZZ.TARGET" -ac
 ```
 
-### 10. Output
+### 10b. Path-Normalization & Case-Sensitivity Bypass
+
+Some paths 403/404 only because of casing or trailing-character handling, not because they
+don't exist — cheap variants to try on any promising hit before discarding it:
+
+```bash
+for variant in "ADMIN" "Admin" "admin/" "admin." "admin%20" "admin%00" "admin..;/" \
+               "./admin" "admin/." "%2e/admin" "admin%2f" ";/admin"; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$variant")
+  echo "$variant -> $code"
+done
+# IIS/Tomcat/Nginx path-normalization quirks (`;`, `%2e%2e`, double slashes) can reach a route
+# a naive filter blocks — treat any status-code delta from the plain path as a signal, and hand
+# a confirmed differential to waf-evasion-testing rather than manually exhausting encodings here.
+```
+
+### 10c. IIS Short-Name (8.3) Enumeration
+
+Only relevant when `Server: Microsoft-IIS` is fingerprinted — the legacy `~1` short-name
+disclosure lets you brute-force real filenames from truncated 8.3 fragments:
+
+```bash
+run_tool curl -s -X OPTIONS "https://TARGET/*~1*/a.aspx" -o /dev/null -w "%{http_code}\n"
+run_tool curl -s -H "Translate: f" "https://TARGET/somefile.aspx" -o /dev/null -w "%{http_code}\n"  # source-disclosure header, distinct bug class but same recon pass
+```
+
+### 10d. Rate-Limit-Aware Throttling
+
+If early requests return 429 or response times climb, drop `-t` and add a delay before
+burning the rest of the wordlist budget on noise the WAF is silently dropping:
+
+```bash
+run_tool ffuf -u https://TARGET/FUZZ -w wordlist.txt -ac -t 10 -p 0.3-0.8 -rate 20
+```
+
+### 10e. Case Permutation Fuzzing
+
+Case-sensitive filesystems (Linux hosts serving mixed-case-authored content, or filters that
+only pattern-match lowercase) can expose a path that's blocked/404 in its canonical casing:
+
+```bash
+for word in admin config backup login api; do
+  for variant in "$word" "${word^^}" "${word^}" "$(echo "$word" | sed 's/./\u&/')"; do
+    code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$variant")
+    echo "$variant -> $code"
+  done
+done
+# ffuf equivalent using a pre-cased wordlist
+run_tool ffuf -u https://TARGET/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-small-directories-lowercase.txt \
+  -X GET -ac -mode clusterbomb
+```
+
+### 10f. Framework-Specific Hidden-Route Wordlists
+
+Generic wordlists miss routes a specific framework always mounts by convention. Once a
+framework is fingerprinted (via `web-recon`), fuzz its known internal route prefixes directly
+instead of relying on a generic dirb list to happen to contain them:
+
+```bash
+# Laravel
+for p in .env telescope horizon _ignition/execute-solution _ignition/health-check \
+         api/documentation storage/logs/laravel.log vendor/composer/installed.json; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+# Django
+for p in admin django-admin __debug__ media/ static/admin/ api/swagger .env; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+# Ruby on Rails
+for p in rails/info/properties rails/info/routes rails/mailers assets/config sidekiq; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+# Spring Boot (actuator family — see also info-disclosure-testing)
+for p in actuator actuator/env actuator/heapdump actuator/mappings actuator/beans swagger-ui.html h2-console; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+# Express/Node
+for p in .env package.json server.js app.js config/default.json node_modules/.package-lock.json; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+# Next.js / Nuxt
+for p in _next/static _next/data .next/build-manifest.json _nuxt api/_health; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/$p"); [ "$code" != "404" ] && echo "$p -> $code"
+done
+```
+
+### 10g. Backup-Suffix Sweep Across Every Discovered File
+
+Once section 2/3 finds a real, existing file (e.g. `config.php`, `app.js`), re-fuzz that exact
+filename with backup/editor suffixes rather than only sweeping suffixes across a generic
+wordlist — real hits concentrate on files known to exist:
+
+```bash
+FOUND_FILE="config.php"
+for suffix in .bak .old .orig .save .swp .tmp .copy .1 .zip .tar.gz ~ .rar "-copy" ".backup"; do
+  code=$(run_tool curl -s -o /dev/null -w "%{http_code}" "https://TARGET/${FOUND_FILE}${suffix}")
+  [ "$code" != "404" ] && echo "${FOUND_FILE}${suffix} -> $code"
+done
+```
+
+### 11. Output
 ```bash
 run_tool ffuf -u https://TARGET/FUZZ -w wordlist.txt -ac -o $DIR/scans/dir_fuzz_results.json -of json
 run_tool curl -sI https://TARGET/discovered_path  # Verify

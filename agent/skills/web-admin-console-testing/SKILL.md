@@ -36,10 +36,12 @@ Record which product and version answered; a generic 404 is not a console.
 Map the banner, title, and login page to a product and version. Use one versioned probe per concrete path; do not probe guessed paths past the budget.
 
 ```bash
-for path in /manager /phpmyadmin /druid /grafana /app/kibana /admin; do
+for path in /manager /phpmyadmin /druid /grafana /app/kibana /admin /jenkins /login /api/overview /elasticsearch /_cat/indices /portainer /api/status /airflow/health /consul/ui /rabbitmq; do
   run_tool curl -sS -k -o /dev/null -w "$path %{http_code} %{redirect_url}\n" --connect-timeout 5 --max-time 20 "https://HOST${path}"
 done > "$DIR/scans/console_paths.txt"
 ```
+
+Common product-to-path map for identification (do not probe beyond the budgeted list above): Jenkins (`/login`, `/script`, `/api/json`), Elasticsearch/Kibana dev tools (`/_cat/indices`, `/app/kibana#/dev_tools`), RabbitMQ management (`/api/overview` on 15672), Consul UI/API (`/v1/agent/self`), Portainer (`/api/status`), Apache Airflow (`/health`, unauthenticated DAG list on older versions), pgAdmin (`/browser/`).
 
 A 200 or a 302 to a login/redirect identifies a live console; a 401/403 still names the product.
 
@@ -85,7 +87,18 @@ run_tool curl -sS -k -b "$DIR/scans/console_session.cookie" --connect-timeout 5 
 
 Treat a successful admin response to a low-privilege session as a broken-function-authorization finding; a 403/405 is expected behavior.
 
-### 6. Map Known CVEs and Confirm Once
+### 6. Check JMX/RMI and Java-Management Consoles
+
+Java application servers sometimes expose JMX/RMI registries or unauthenticated `/manager` endpoints separately from the HTTP console. Probe the registry port and, for Tomcat, the deployer endpoint; do not attempt a deserialization payload here.
+
+```bash
+run_tool nmap -Pn -sV -p 1099,9010,9990 --host-timeout 30s --max-retries 1 HOST > "$DIR/scans/console_jmx_ports.txt" 2>&1
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 "https://HOST/manager/text/list" -o "$DIR/scans/console_tomcat_manager_text.txt"
+```
+
+An open JMX/RMI port with no authentication banner, or a `/manager/text/list` response without credentials, is a version/exposure finding on its own — record it and hand deserialization or WAR-deployment chains to exploit-developer.
+
+### 7. Map Known CVEs and Confirm Once
 
 Map the product and version to a local CVE list, then run the matching NSE/`nuclei` template set once. Select one matched non-destructive check and retain its response; do not execute an exploit.
 
@@ -96,7 +109,31 @@ run_tool nuclei -u "https://HOST" -t exposed-panels -t default-logins -t tech-de
 
 Report a CVE only when the single check reproduces the affected behavior; otherwise record it as an unconfirmed version match.
 
-### 7. Apply Reporting Discipline
+### 8. Extend the Product-to-Fingerprint Map
+
+Beyond the path list in step 2, correlate title/banner/header clues against a wider product set so a matched console gets a precise version-to-CVE lookup in step 7 instead of a generic label.
+
+| Product | Fingerprint clue | Default console path |
+|---|---|---|
+| Apache Tomcat Manager | `Server: Apache-Coyote`, realm prompt on `/manager/html` | `/manager/html`, `/manager/text` |
+| phpMyAdmin | `<title>phpMyAdmin</title>`, `pma_username` cookie | `/phpmyadmin`, `/pma` |
+| Apache Druid | `<title>Apache Druid</title>`, `/status/health` 200 | `/unified-console.html` |
+| Grafana | `X-Grafana-*` headers, `/api/health` JSON with `version` | `/login`, `/api/health` |
+| Kibana | `kbn-version` header, `/app/kibana` redirect | `/app/kibana`, `/api/status` |
+| Jenkins | `X-Jenkins` header, `/login` form with `j_username` | `/login`, `/script`, `/api/json` |
+| RabbitMQ Management | `Server: RabbitMQ` on 15672, `/api/overview` JSON | `/api/overview` |
+| Portainer | `<title>Portainer</title>`, `/api/status` JSON | `/api/status` |
+| Consul | `X-Consul-*` headers, `/v1/agent/self` JSON | `/v1/agent/self`, `/ui` |
+| Apache Airflow | `<title>Airflow</title>`, `/health` JSON with `metadatabase` | `/health`, `/login` |
+| pgAdmin | `<title>pgAdmin 4</title>` | `/browser/` |
+| Nexus Repository | `Server: Nexus`, `/service/rest/v1/status` | `/service/rest/v1/status`, `/nexus` |
+| Weblogic Console | `<title>WebLogic Server Administration Console</title>` | `/console/login/LoginForm.jsp` |
+| JBoss/WildFly Admin | `<title>JBoss</title>` or `/management` 401 realm | `/management`, `/console` |
+| Splunk Web | `<title>Splunk</title>`, `Server: Splunkd` | `/en-US/account/login` |
+
+Record only the matched fingerprint clue and path status; do not probe products outside the step 2 budget just because they appear in this table.
+
+### 9. Apply Reporting Discipline
 
 A finding requires a reproducible request/response pair, the named console and version, and a concrete impact (default credential, unauthenticated disclosure, or broken function authorization). Enumeration alone is not a finding.
 

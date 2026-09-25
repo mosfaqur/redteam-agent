@@ -84,6 +84,26 @@ origin: RedteamOpencode
 - [ ] CSRF + login = login CSRF (force victim into attacker's account)
 - [ ] CSRF + CORS misconfiguration
 
+### 8. Multipart/JSON Content-Type Bypass
+
+`Content-Type` enforcement is a common CSRF mitigation because plain HTML forms can only send `application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain` cross-origin without triggering a CORS preflight. Test whether the server's JSON-only parser can still be reached:
+- [ ] `text/plain` body containing raw JSON — some frameworks parse the body regardless of declared `Content-Type`, and `text/plain` is a CORS-safelisted type (no preflight)
+- [ ] `application/x-www-form-urlencoded` body shaped as flat JSON-equivalent keys, if the framework's model binder accepts both encodings on the same endpoint
+- [ ] Flash/legacy `multipart/form-data` boundary tricks to smuggle a JSON-like body if an old parser is in play — low priority, only worth checking on legacy stacks
+
+### 9. Double-Submit and Custom-Header Token Weaknesses
+
+- [ ] Double-submit cookie pattern: if the token is only validated by comparing the cookie value against a request field (not against a per-session server-side store), a CSRF landing page that itself sets/reads the cookie (via a same-site subdomain or a separate vulnerability) can forge the match
+- [ ] Custom-header requirement (e.g. `X-Requested-With: XMLHttpRequest`) is not CSRF protection if the header value is static/predictable and a simple-request-compatible method still reaches the same logic — confirm the header is actually required, not just conventionally sent by the SPA's HTTP client
+- [ ] Token leakage via GET: if the CSRF token appears in a URL (query string) it can leak through `Referer` headers on subsequent cross-origin requests or browser history — test whether the app ever transmits the token this way
+
+### 10. Clickjacking as a CSRF-Adjacent Primitive
+
+When state-changing actions require only a click (no unpredictable parameters, e.g. "delete account", "enable 2FA off", "accept invite"), CSRF-token presence doesn't block a clickjacking UI-redress attack because the victim's own authenticated click submits the (correctly tokened) form:
+- [ ] Check for `X-Frame-Options: DENY`/`SAMEORIGIN` or a `Content-Security-Policy: frame-ancestors` directive on sensitive pages
+- [ ] If absent, build a minimal iframe-overlay PoC (`<iframe src="https://target/sensitive-action" style="opacity:0.001">`) positioned under a decoy UI element to confirm the click reaches the real page
+- [ ] Note this is a distinct finding from token-based CSRF — report it as clickjacking/UI redressing even when it was discovered while testing CSRF protections
+
 ## What to Record
 
 - Endpoint and action vulnerable to CSRF

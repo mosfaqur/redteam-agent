@@ -43,6 +43,21 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" \
   --data '{"constructor":{"prototype":{"pollutionProbe":true}}}' # JSON constructor path
 ```
 
+### 2b. Filter-Bypass Key Encodings
+If `__proto__`/`constructor`/`prototype` are stripped or rejected by input validation, test alternate representations that some parsers still normalize to the same dangerous key before the filter runs (or after it, if filtering happens once and the parser re-normalizes afterward).
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" -H 'Content-Type: application/json' \
+  --data '{"constructor":{"prototype":{"pollutionProbe":true}}}'  # unicode-escaped key inside JSON string
+run_tool curl -sS --connect-timeout 5 --max-time 20 \
+  "$URL?a%5B__proto__%5D%5BpollutionProbe%5D=true"                    # URL-encoded bracket path
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" -H 'Content-Type: application/json' \
+  --data '{"a":{"__pro__proto__to__":{"pollutionProbe":true}}}'       # nested-strip bypass: filter removes one "__proto__" substring, leaving the real key
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$MERGE_URL" -H 'Content-Type: application/json' \
+  --data '{"a.__proto__.pollutionProbe":"true"}'                      # dot-path key for libraries using `_.set`/path-string merges instead of nested objects
+```
+Also test polluting `Array.prototype` and `Object.prototype` separately — a gadget may only read from one, and some sanitizers only block `Object.prototype` keys while leaving `Array.prototype`/`Function.prototype` reachable through the same merge call.
+
 ### 3. Exercise Deep-Merge and Parser Gadgets
 Test one recursive-merge representation at a time. `lodash.merge` and `deepmerge` can copy nested keys into a shared target; `qs` and Express query parsing can materialize bracket paths and arrays. Check parser normalization, depth limits, duplicate parameters, and whether validation strips prototype keys.
 
@@ -77,6 +92,13 @@ Keep gadget mapping read-only until the pollution primitive is confirmed.
 - EJS: inspect versioned options such as `client`, `escapeFunction`, and `compileDebug`; Pug: inspect `cache`, `filename`, `basedir`, and plugin options; Nunjucks: inspect `env`, `autoescape`, and `throwOnUndefined`.
 - `vm` or `vm2`: inspect host-function, timeout, and sandbox options for weakened isolation; do not assume a version-specific escape exists.
 - Treat template and sandbox gadgets as exploit hypotheses, not proof; record the exact library, version, polluted key, and call path.
+
+### 5b. Client-Side Prototype Pollution
+Treat client-side JS bundles as their own surface, distinct from the Node.js server gadgets above — coordinate with `source-analysis` for the static discovery step and `xss-testing` for the DOM-sink chain.
+
+- [ ] Trigger pollution via URL fragment/query parsing libraries (`jQuery.extend(true, ...)`, older `qs` in the browser, hand-rolled `parseQuery` helpers) using `?__proto__[x]=y` or `#__proto__[x]=y` and observe whether a later DOM read of `x` on any object reflects the polluted value
+- [ ] Look for gadgets that turn a polluted property into DOM XSS: a library that reads `Object.prototype.innerHTML`, `srcdoc`, `onerror`, or a templating default from a prototype-inherited property and writes it unsanitized into the page
+- [ ] Confirm with a benign marker property first (e.g., pollute `pollutionProbe` and check `({}).pollutionProbe` in an injected `javascript:` bookmarklet or via a diagnostic console log), then only escalate to a `<script>`/`onerror` gadget once a concrete unsanitized sink consuming that property is identified
 
 ### 6. Confirm Versus Exploit
 Use one bounded pollution probe with an observable second-request effect for confirmation. The analyst owns the parser triage; the `exploit-developer` owns any RCE chain, command execution proof, persistence, or post-exploitation. Do not chain a process, template, or sandbox gadget from this skill.

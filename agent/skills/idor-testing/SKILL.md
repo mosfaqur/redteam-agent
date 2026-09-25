@@ -70,7 +70,21 @@ origin: RedteamOpencode
 - [ ] Remove or blank the user filter parameter
 - [ ] GraphQL: query relationships to access other users' nested data
 
-### 7. Validate Impact
+### 7. Batch/Bulk-Endpoint and Filter Manipulation
+
+- [ ] Array/list endpoints accepting an ID filter: widen or remove the filter (`?owner_id=` → drop param, `?owner_id[]=`) to see if server-side scoping was enforced only client-side
+- [ ] Bulk-export endpoints (`/api/export?ids=1,2,3`) — append other users' IDs to a batch you legitimately own; a common miss is per-item authz being skipped when items are processed as a batch
+- [ ] Pagination bypass: some APIs scope the *first page* to the caller but an unscoped `?cursor=`/`?offset=` value reveals other users' records on subsequent pages
+- [ ] Search/autocomplete endpoints without an explicit ID: does a broad or empty query return cross-tenant/cross-user results that a filtered query correctly scopes?
+
+### 8. Indirect Object Reference Chains
+
+- [ ] Multi-step object relationships: object A (owned) → references object B (via a nested field) → does accessing B directly, or via A's relation endpoint, apply the same ownership check as accessing A?
+- [ ] File/attachment IDs returned inside another object's JSON response are often unauthenticated-by-design once known — test whether the attachment endpoint re-checks ownership independent of the parent object
+- [ ] WebSocket/real-time channels: subscribing to another user's channel/room ID (`ws://.../rooms/{roomId}`) — IDOR applies identically to subscription-based protocols, see `websocket-testing`
+- [ ] GraphQL node/global-ID lookups (Relay-style `id: "VXNlcjox"` base64 `Type:id`): decode, increment the numeric portion, re-encode, and query the generic `node(id: ...)` resolver directly — it frequently skips the type-specific authz the dedicated query enforces
+
+### 9. Validate Impact
 
 - [ ] Confirm data belongs to another user (check names, emails)
 - [ ] Demonstrate modification: change another user's data

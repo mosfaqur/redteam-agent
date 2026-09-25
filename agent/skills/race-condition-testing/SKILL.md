@@ -94,6 +94,21 @@ override behavior.
 - [ ] Create object → access before initialization completes
 - [ ] Upload file → access before antivirus scan
 
+### 7b. Connection Warming & Last-Byte Synchronization
+
+Network jitter (not server-side locking) is the most common reason a race "doesn't reproduce." Tighten the send window before concluding a target isn't vulnerable:
+- [ ] Pre-warm connections: open and idle each TCP/TLS connection to the target before firing (avoids TLS handshake jitter skewing arrival order)
+- [ ] Last-byte sync: on HTTP/1.1, send all but the final byte of each request first, then release the final byte for every connection in one tight loop — collapses arrival variance to sub-millisecond
+- [ ] Prefer a single HTTP/2 connection with multiplexed streams over N separate HTTP/1.1 connections when the target supports h2 — removes per-connection handshake variance entirely
+- [ ] If remote latency is high and jitter dominates, run the race from a host on the same network segment/region as the target, or via a request generator co-located with it, rather than accepting a low hit rate as "not vulnerable"
+
+### 7c. Sub-Endpoint / Workflow-Step Races
+
+- [ ] Multi-step checkout/workflow: race the *last* step (e.g. "confirm order") against a concurrent request to a step that mutates the same state (e.g. "apply coupon" or "change shipping address") — inconsistent step ordering can double-apply a discount or skip a validation step entirely
+- [ ] Password/email-change confirmation race: request two different email-change confirmations in parallel with two different target addresses — check whether both succeed or the account ends up in an inconsistent state (verified for neither, or attacker's address wins silently)
+- [ ] Rate-limit/lockout race: fire parallel failed-login attempts to see if the lockout counter itself has a TOCTOU window that lets one extra attempt slip through after the "official" limit, useful when chained with `credential-attacks`
+- [ ] Idempotency-key race: if the API supports idempotency keys, test whether reusing vs. omitting the key under parallel load still enforces single execution — a common gap is enforcing idempotency only after the first request's transaction commits, not from receipt
+
 ### 8. Detection Indicators
 
 - [ ] Multiple 200 responses where only one expected

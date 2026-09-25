@@ -125,6 +125,60 @@ rg -oN '(?i)(mysql|postgres|mongodb|redis|mssql)://[^\s"<>]+' "$TARGET_FILE"
 # Webhook URLs (Slack, Discord, etc)
 rg -oN 'https://hooks\.(slack|discord)\.com/[^\s"<>]+' "$TARGET_FILE"
 
+# === CLOUD / SAAS PROVIDER KEY FORMATS (newer prefixes) ===
+
+# GitHub fine-grained / classic tokens by type
+rg -oN '\bgh[pousr]_[A-Za-z0-9]{36,251}\b' "$TARGET_FILE"                    # ghp_ (PAT) gho_ (OAuth) ghu_ (user-to-server) ghs_ (server-to-server) ghr_ (refresh)
+rg -oN '\bgithub_pat_[A-Za-z0-9_]{22,}\b' "$TARGET_FILE"                     # fine-grained PAT
+
+# Slack tokens/webhooks (bot, user, app, webhook, workspace)
+rg -oN '\bxox[baprs]-[0-9A-Za-z-]{10,72}\b' "$TARGET_FILE"
+rg -oN 'https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+' "$TARGET_FILE"
+
+# Stripe (secret, restricted, publishable)
+rg -oN '\bsk_(live|test)_[0-9a-zA-Z]{24,}\b' "$TARGET_FILE"
+rg -oN '\brk_(live|test)_[0-9a-zA-Z]{24,}\b' "$TARGET_FILE"
+rg -oN '\bpk_(live|test)_[0-9a-zA-Z]{24,}\b' "$TARGET_FILE"
+
+# Twilio
+rg -oN '\bAC[a-f0-9]{32}\b' "$TARGET_FILE"                                   # Account SID
+rg -oN '(?i)twilio.{0,20}["\x27][a-f0-9]{32}["\x27]' "$TARGET_FILE"          # Auth token (context-anchored, low signal alone)
+
+# SendGrid / Mailgun / Postmark
+rg -oN '\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b' "$TARGET_FILE"
+rg -oN '(?i)key-[a-f0-9]{32}\b' "$TARGET_FILE"                               # Mailgun legacy key format
+rg -oN '\b[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b.{0,20}(?i)postmark' "$TARGET_FILE"
+
+# npm / PyPI / crates.io publish tokens
+rg -oN '\bnpm_[A-Za-z0-9]{36}\b' "$TARGET_FILE"
+rg -oN '\bpypi-AgEIcHlwaS[A-Za-z0-9_-]{50,}\b' "$TARGET_FILE"
+
+# DigitalOcean / Heroku / Vercel / Netlify platform tokens
+rg -oN '\bdop_v1_[a-f0-9]{64}\b' "$TARGET_FILE"
+rg -oN '(?i)heroku.{0,20}["\x27][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}["\x27]' "$TARGET_FILE"
+rg -oN '\bSFMy[A-Za-z0-9._-]{40,}\b' "$TARGET_FILE"                          # Netlify-style token shape
+
+# GCP service-account / OAuth client, Azure AD client secret
+rg -oN '\bya29\.[A-Za-z0-9_-]{50,}\b' "$TARGET_FILE"                         # Google OAuth access token
+rg -oN '(?i)client[_-]?secret["\s:=]+["\x27]?[A-Za-z0-9_~.\-]{34,40}["\x27]?' "$TARGET_FILE"  # Azure AD app secret shape
+
+# Docker Hub / GHCR / container registry tokens
+rg -oN '\bdckr_pat_[A-Za-z0-9_-]{27,}\b' "$TARGET_FILE"
+
+# OpenAI / Anthropic / other LLM API keys (frequently hardcoded in client demos)
+rg -oN '\bsk-[A-Za-z0-9]{20,}T3BlbkFJ[A-Za-z0-9]{20,}\b' "$TARGET_FILE"
+rg -oN '\bsk-ant-[A-Za-z0-9_-]{80,}\b' "$TARGET_FILE"
+
+# PGP private key block (distinct from RSA/EC/OPENSSH marker already covered below)
+rg -oN '-----BEGIN PGP PRIVATE KEY BLOCK-----' "$TARGET_FILE"
+
+# SSH private key passphrase-protected marker + OpenSSH new format
+rg -oN '-----BEGIN OPENSSH PRIVATE KEY-----' "$TARGET_FILE"
+
+# JWT embedded in a URL (query string or fragment) — distinct finding from a bare JWT: it means
+# the token is logged in browser history, proxy logs, and Referer headers on every navigation
+rg -oN '[?&#](access_token|id_token|token|jwt|auth)=eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+' "$TARGET_FILE"
+
 # === CORPORATE INFRASTRUCTURE ===
 
 # Internal IPs (RFC1918)
@@ -152,7 +206,113 @@ rg -oN '\b\d{10}[A-Z]\b' "$TARGET_FILE"
 
 # DEA number (prescriber)
 rg -oN '\b[ABCDFGHMJKLPT][A-Z9]\d{7}\b' "$TARGET_FILE"
+
+# === ADDITIONAL IDENTITY / NATIONAL ID ===
+
+# France — INSEE / NIR (13 digits + 2-digit key)
+rg -oN '\b[12]\d{2}(0[1-9]|1[0-2])(0[1-9]|[1-9]\d)\d{3}\d{3}\d{2}\b' "$TARGET_FILE"
+
+# Canada — Social Insurance Number
+rg -oN '\b\d{3}[- ]\d{3}[- ]\d{3}\b' "$TARGET_FILE"
+
+# === ADDITIONAL SAAS / DEVOPS TOKENS ===
+
+# Slack token / webhook
+rg -oN '\bxox[baprs]-[0-9A-Za-z-]{10,72}\b' "$TARGET_FILE"
+
+# Stripe secret/publishable key
+rg -oN '\b(sk|pk|rk)_(live|test)_[0-9a-zA-Z]{16,99}\b' "$TARGET_FILE"
+
+# GitHub token (classic + fine-grained)
+rg -oN '\bgh[pousr]_[A-Za-z0-9]{36,255}\b' "$TARGET_FILE"
+rg -oN '\bgithub_pat_[A-Za-z0-9_]{22,255}\b' "$TARGET_FILE"
+
+# Twilio
+rg -oN '\bSK[a-z0-9]{32}\b' "$TARGET_FILE"
+rg -oN '\bAC[a-z0-9]{32}\b' "$TARGET_FILE"
+
+# SendGrid
+rg -oN '\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b' "$TARGET_FILE"
+
+# Mailgun
+rg -oN '\bkey-[a-f0-9]{32}\b' "$TARGET_FILE"
+
+# Telegram bot token
+rg -oN '\b\d{8,10}:[A-Za-z0-9_-]{35}\b' "$TARGET_FILE"
+
+# Discord bot token
+rg -oN '\b[MN][A-Za-z\d]{23}\.[A-Za-z\d-]{6}\.[A-Za-z\d_-]{27}\b' "$TARGET_FILE"
+
+# npm access token
+rg -oN '\bnpm_[A-Za-z0-9]{36}\b' "$TARGET_FILE"
+
+# PyPI token
+rg -oN '\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}\b' "$TARGET_FILE"
+
+# BIP39-style crypto wallet seed phrase (12/24 lowercase words in sequence — high false-positive risk, only flag adjacent to "seed"/"mnemonic"/"wallet" context)
+rg -oNB2 -A0 '(?i)(seed phrase|mnemonic|recovery phrase)[:\s]+((?:[a-z]+\s+){11,23}[a-z]+)' "$TARGET_FILE"
 ```
+
+### Phase 1b: High-Entropy Secret Detection (catches custom/internal token formats regex prefixes miss)
+
+Known-prefix regexes (`AKIA`, `sk_live_`, `ghp_`, …) only catch vendor-issued secrets.
+Internal/custom API keys, session secrets, and encryption keys have no recognizable prefix —
+scan for Shannon-entropy outliers instead, scoped to likely assignment contexts:
+
+```bash
+python3 - "$TARGET_FILE" <<'PYEOF'
+import re, sys, math
+from collections import Counter
+
+def entropy(s):
+    if not s:
+        return 0
+    counts = Counter(s)
+    length = len(s)
+    return -sum((c / length) * math.log2(c / length) for c in counts.values())
+
+text = open(sys.argv[1], errors="ignore").read()
+# candidate = quoted string assigned to a key-like identifier, 16-128 chars
+for m in re.finditer(r'["\']([A-Za-z0-9+/_=-]{16,128})["\']', text):
+    val = m.group(1)
+    if entropy(val) >= 4.0 and not val.isdigit():
+        start = max(0, m.start() - 40)
+        context = text[start:m.start()]
+        print(f"entropy={entropy(val):.2f} context=...{context[-40:]!r} value={val[:8]}...{val[-4:]}")
+PYEOF
+```
+Manually triage hits: a high-entropy value near `key`, `secret`, `token`, `password`, `signature`, or `salt` in the preceding 40 characters is worth escalating; random-looking asset hashes/build IDs are common false positives.
+
+### Phase 1b: Entropy-Based Generic Secret Detection
+
+Regex families above only catch known key formats. New/custom secret formats (internal API
+tokens, rotated keys that no longer match a vendor prefix) need a Shannon-entropy pass instead:
+
+```bash
+python3 -c "
+import re, sys, math
+from collections import Counter
+
+def entropy(s):
+    if not s:
+        return 0
+    counts = Counter(s)
+    length = len(s)
+    return -sum((c/length) * math.log2(c/length) for c in counts.values())
+
+text = open(sys.argv[1]).read()
+# Candidate tokens: 20+ char runs of base64/hex-ish charset, near an assignment or key-like word
+for m in re.finditer(r'''[\"'\`]?([A-Za-z0-9+/_=-]{20,100})[\"'\`]?''', text):
+    tok = m.group(1)
+    if entropy(tok) > 4.0 and not tok.isdigit():
+        start = max(0, m.start()-40)
+        context = text[start:m.start()].strip()[-40:]
+        print(f'{entropy(tok):.2f}  ...{context}  ->  {tok[:8]}...{tok[-4:]}')
+" "$TARGET_FILE" | sort -rn | head -30
+```
+High-entropy strings adjacent to `key`, `token`, `secret`, `auth`, or `password` in the
+preceding context are the highest-confidence candidates — triage those first, then spot-check
+the rest for false positives (minified code hashes, UUIDs, content hashes also score high).
 
 ### Phase 2: JSON Field Name Analysis
 

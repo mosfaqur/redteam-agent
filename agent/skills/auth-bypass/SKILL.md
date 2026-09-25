@@ -47,7 +47,40 @@ run_tool hydra -l root -P passwords.txt target ssh -t 4
 - Response manipulation (`"success":false` → `true`), backup code enumeration
 - MFA not enforced on all auth paths, disable without re-auth
 
-### 6. Anti-Automation and Account-State Controls
+### 6. Rate-Limit and Lockout Bypass Channels
+
+Test whether the counter keys on something spoofable rather than the credential pair itself:
+```
+X-Forwarded-For: 1.2.3.4        # increment per rotating IP
+X-Forwarded-For: 127.0.0.1      # trusted-proxy bypass, may also skip auth entirely
+X-Real-IP / X-Client-IP / True-Client-IP / Forwarded: for=<ip>
+```
+- Case/whitespace variation on the username (`Admin` vs `admin` vs `admin `) — some lockout counters are case-sensitive and effectively give N attempts per casing variant.
+- Alternate the identifier field: email vs username vs numeric user ID vs phone, if the endpoint accepts more than one — each may have its own independent counter.
+- Distributed low-and-slow: stay under the lockout window's request-count/time threshold, never exceed 5 requests per identifier in-session per the bounded-probe rule above.
+- Race the lockout: fire the N+1th attempt concurrently with the Nth so the counter hasn't incremented yet (chain into `race-condition-testing`).
+
+### 7. WebAuthn / Passkey Downgrade
+
+- Check whether a passkey-enrolled account can still fall back to password or SMS OTP — a downgrade path re-opens every weaker mechanism.
+- Test origin/RP-ID validation: does the server verify `clientDataJSON.origin` matches the expected origin, or just that a signature validates?
+- Check for missing `userVerification: "required"` enforcement — a bypassable "silent" authenticator assertion.
+
+### 8. Authorization Matrix Across Verbs, Versions, and Formats
+
+Authorization checks are frequently implemented once (e.g. a middleware keyed on exact path) and missed elsewhere. For every protected endpoint, vary independently:
+- HTTP verb: `GET`/`POST`/`PUT`/`PATCH`/`DELETE`/`HEAD`/`OPTIONS`/`TRACE`
+- API version prefix: `/v1/...` protected but `/v2/...` or unversioned `/api/...` not
+- Content negotiation: same endpoint via `Accept: application/xml` or `.json`/`.xml` suffix — some frameworks route format-suffixed requests around auth middleware
+- Trailing/duplicate slashes and case folding on the path itself, not just the final segment: `//admin`, `/Admin`, `/admin//`, `/admin%00`
+- GraphQL: a REST endpoint's authz check has no bearing on the same resource exposed as a GraphQL field/mutation — test resolvers independently
+
+### 9. Login CSRF / Session Injection
+
+- Attacker logs the victim into the attacker's own account (via CSRF on the login form, or by pre-setting a session cookie before the victim authenticates) so the victim's subsequent actions are attributed to attacker-controlled state — used to harvest search history, saved payment data, or as a pivot for stored XSS in "your activity" pages.
+- Check whether the login form is protected by an anti-CSRF token; unauthenticated forms are often skipped under the assumption "no session to attack yet."
+
+### 10. Anti-Automation and Account-State Controls
 
 Classify each CAPTCHA as a simple math/text CAPTCHA, an image/slider challenge, a proof-of-work challenge, or a third-party challenge. Inspect the same response and its related requests for an embedded answer, a predictable nonce, client-side-only validation, or an API that returns the answer, then confirm whether validation is enforced server-side.
 
@@ -110,6 +143,8 @@ GET /admin/delete → 403, POST /admin/delete → 200
 ```
 
 ### 5. JWT Attacks
+
+See `jwt-testing` for the full algorithm-confusion, `kid`-injection, and `jku`/`x5u` bypass matrix — summary here for quick triage:
 ```bash
 # Decode: echo "HEADER_B64" | base64 -d
 # None algorithm: {"alg":"none"}, remove signature → HEADER.PAYLOAD.
@@ -124,6 +159,12 @@ jwt_tool TOKEN -C -d wordlist.txt  # Crack
 ### 6. OAuth/SSO Flaws
 - Open redirect in redirect_uri (steal auth code): `redirect_uri=https://attacker.com`
 - Missing state param (CSRF), token leakage via Referer, scope escalation
+- `redirect_uri` validation bypass via suffix/prefix confusion: `https://victim.com.attacker.com`, `https://victim.com@attacker.com`, `https://victim.com%2f%2e%2e%2fattacker.com`, unregistered path traversal on an otherwise-exact-match host (`https://victim.com/../attacker.com`)
+- Authorization-code reuse: replay a used code — should be single-use and invalidated after first exchange
+- PKCE downgrade: strip `code_challenge`/`code_verifier` from a public client flow, or submit a static/predictable verifier, to check the server still enforces it
+- IdP confusion in multi-tenant SSO: submit a token/assertion issued by a *different* legitimate tenant/realm of the same IdP and see if the relying party validates issuer+audience or just signature
+- SAML: signature-wrapping (XML Signature Wrapping) — inject a forged assertion alongside the signed original so the parser validates the signed node but processes the forged one; also test `NameID` swap in an unsigned assertion field
+- Full details and OAuth/OIDC/SAML-specific tooling: see `oauth-oidc-testing`
 
 ### 7. Role/Privilege Manipulation
 ```

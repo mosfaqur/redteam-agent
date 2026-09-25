@@ -59,6 +59,15 @@ KUBECONFIG="$DIR/kubeconfig" run_tool kubectl get secrets,configmaps,pods -A -o 
 
 Enumerate service-account names, projected token paths, namespaces, image references, host mounts, and pod security contexts. Save tokens or credential material to `$DIR/auth.json` and reference the source in `$DIR/intel.md`.
 
+Also check for an aggregated `ClusterRole` granting `cluster-admin`-equivalent via `rbac.authorization.k8s.io/aggregate-to-*` labels, a `RoleBinding`/`ClusterRoleBinding` naming `system:authenticated` or `system:unauthenticated`, and a bound service-account token with no expiry (`kubectl.kubernetes.io/last-applied-configuration` or a legacy non-`BoundServiceAccountTokenVolume` secret). On a cloud-managed cluster, check whether the node's own cloud-IAM role (IRSA/Workload Identity/Managed Identity) is reachable from inside a pod via the instance metadata service — that is a pod-to-cloud privilege-escalation path, not a Kubernetes-only issue; cross-reference `cloud-testing`.
+
+```bash
+KUBECONFIG="$DIR/kubeconfig" run_tool kubectl get clusterrolebindings -o json | jq -r '.items[] | select(.subjects[]?.name=="system:authenticated" or .subjects[]?.name=="system:unauthenticated") | .metadata.name'
+KUBECONFIG="$DIR/kubeconfig" run_tool kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o json > "$DIR/scans/k8s_admission_webhooks.json"
+jq -r '.items[] | {name:.metadata.name, failurePolicy:[.webhooks[]?.failurePolicy]}' "$DIR/scans/k8s_admission_webhooks.json"
+```
+An admission webhook with `failurePolicy: Ignore` fails open — a policy engine (OPA/Gatekeeper, Kyverno) that is unreachable or errors will silently permit the request it was meant to block; record this as a bypassable control, not a confirmed exploit.
+
 ### 4. Check etcd Exposure
 
 Test unauthenticated health, membership, and key-prefix reads. If TLS is enabled, use only certificate material already in scope:
@@ -104,6 +113,29 @@ run_tool trivy image IMAGE_REF
 run_tool grype IMAGE_REF
 run_tool kubesec scan "$DIR/scans/k8s_pod_specs.json"
 ```
+
+### 7. Service-Account Token Abuse and RBAC Escalation Chains
+
+Enumerate the exact projected/legacy service-account token a compromised pod carries, and the RBAC scope it maps to, without using the token beyond a self-check:
+
+```bash
+KUBECONFIG="$DIR/kubeconfig" run_tool kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\t"}{.spec.serviceAccountName}{"\n"}{end}' > "$DIR/scans/k8s_pod_sa_map.txt"
+KUBECONFIG="$DIR/kubeconfig" run_tool kubectl get rolebindings,clusterrolebindings -A -o json | jq -r '.items[] | select(.subjects[]?.kind=="ServiceAccount") | {ns:.metadata.namespace, role:.roleRef.name, subjects:[.subjects[]?.name]}' > "$DIR/scans/k8s_sa_rolebindings.json"
+run_tool curl -sk --connect-timeout 5 --max-time 20 -H "Authorization: Bearer $(cat "$DIR/scans/sa_token" 2>/dev/null)" https://HOST:6443/apis/authorization.k8s.io/v1/selfsubjectrulesreviews -X POST -H 'Content-Type: application/json' --data '{"kind":"SelfSubjectRulesReview","apiVersion":"authorization.k8s.io/v1","spec":{"namespace":"default"}}'
+```
+
+Record any RBAC chain where a low-privilege pod's service account can `get`/`list` `secrets` in its namespace (harvesting other workloads' credentials), `create` a `pods` resource with an attacker-chosen `serviceAccountName` (privilege pivot to a more privileged SA already bound in that namespace), or `bind`/`escalate` verbs on `roles.rbac.authorization.k8s.io` (direct RBAC self-escalation verbs). A default-namespace `ServiceAccount` still bound to the built-in `system:basic-user` or an overly broad custom role is a finding independent of any pod compromise.
+
+### 8. Pod-to-Node Escape via hostPath and Privileged PodSpecs
+
+Beyond the namespace-sharing triage in step 6, isolate the exact PodSpec fields that grant a *writable* path to the underlying node filesystem rather than merely a shared namespace:
+
+```bash
+jq -r '.items[] | select(.spec.volumes[]?.hostPath != null) | {namespace:.metadata.namespace, name:.metadata.name, hostPaths:[.spec.volumes[]? | select(.hostPath != null) | .hostPath.path]}' "$DIR/scans/k8s_pod_specs.json" > "$DIR/scans/k8s_hostpath_pods.jsonl"
+jq -r '.items[] | select(.spec.containers[]?.securityContext.privileged == true) | {namespace:.metadata.namespace, name:.metadata.name}' "$DIR/scans/k8s_pod_specs.json" > "$DIR/scans/k8s_privileged_pods.jsonl"
+```
+
+A `hostPath` mount at `/`, `/var/run/docker.sock`, `/var/lib/kubelet`, or `/etc/kubernetes` is a direct node-compromise primitive — writing into `/var/lib/kubelet/pods` or a static-pod manifest directory (`/etc/kubernetes/manifests`) lets a pod cause the kubelet to schedule an attacker-controlled privileged pod on the node itself (static-pod escape). A privileged pod combined with `hostPID: true` allows entering the node's PID namespace and using `nsenter` against PID 1 to obtain a full host shell. Record the exact field (`hostPath.path`, `securityContext.privileged`, `hostPID`) as evidence; the escape execution itself belongs to exploit-developer at `vuln_confirmed`.
 
 ### Lab objective recall closure
 

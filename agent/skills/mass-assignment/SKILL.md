@@ -102,7 +102,26 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -X PATCH "$OBJECT_URL" \
 
 For JSON artifacts, use `jq` to sort and compare stable fields; retain raw bodies and headers. Capture the exact field, method, status, response, persisted read-back, authorization context, and whether a token, cookie, `ETag`, or `Location` changed.
 
-### 8. Frame Severity and Handoff
+### 8. Array-Index and Type-Coercion Tricks
+
+Some frameworks bind form/query keys using bracket or dot notation that differs from the documented JSON shape — a field blocked by an allowlist on its normal path may still bind through an alternate encoding:
+```
+role[]=admin                     # array-wrapped scalar
+user[role]=admin                 # PHP/Rails-style nested form key
+user.role=admin                  # dotted form key (some Spring/Java binders)
+role=admin&role=user             # duplicate form key, first/last-wins differs from JSON duplicate-key test
+```
+Also test type confusion on boolean/numeric guarded fields: `"isAdmin":"true"` (string) vs `"isAdmin":1` vs `"isAdmin":true` — a loosely-typed backend language may coerce a string/int the strict-typed allowlist check didn't anticipate.
+
+### 9. Internal/Computed-Field Injection
+
+Beyond privilege fields, target fields the server is expected to compute itself but which a lenient deserializer may accept from the client:
+- Timestamps: `createdAt`, `updatedAt`, `approvedAt` — backdating or forward-dating records
+- Relationship/ownership fields: `ownerId`, `userId`, `organizationId``, `tenantId` — reassigning an object to a different account/tenant on create rather than update
+- State-machine fields: `status`, `state`, `workflowStage` — jumping an object directly to an approved/shipped/paid state, skipping intermediate validation steps
+- Audit/version fields: `version`, `etag`, `revision` — forcing an optimistic-lock bypass
+
+### 10. Frame Severity and Handoff
 Call `role`, `isAdmin`, `is_staff`, `verified`, permissions, or tenant selection privilege escalation when authorization changes. Call `email`, `balance`, `price`, internal IDs, or broad response fields excessive data exposure when unauthorized read or persistence occurs. Combine only when evidence proves both. Keep this skill to one field and one nested or GraphQL variant per endpoint; the `exploit-developer` owns escalation chains and impact proof.
 
 ## References

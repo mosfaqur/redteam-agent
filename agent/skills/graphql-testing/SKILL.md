@@ -41,6 +41,9 @@ origin: RedteamOpencode
 - [ ] Mutation types: `{ __schema { mutationType { fields { name } } } }`
 - [ ] If introspection disabled, test partial: `{ __type(name: "User") { fields { name } } }`
 - [ ] Field suggestion: send typo, observe "Did you mean..." errors
+- [ ] Systematic schema reconstruction when introspection is fully disabled but suggestions remain on: brute-force common type/field names via the "Did you mean" oracle (tools like `clairvoyance` automate this); treat this as a bounded 1-2 probe confirmation here, escalate full reconstruction to `fuzzer`
+- [ ] Introspection re-enabled on an alternate operation name or via POST when GET is blocked (or vice versa) — some gateways only disable introspection on the default route
+- [ ] Check for a leaked SDL/schema file directly: `/schema.graphql`, `/graphql/schema.json`, exposed in JS bundle source maps
 
 ### 3. Information Gathering
 
@@ -79,6 +82,14 @@ origin: RedteamOpencode
       { a: user(id:1){name} b: user(id:2){name} ... z: user(id:26){name} }
       ```
 - [ ] Test depth limit, complexity limit, rate limit
+- [ ] Fragment-cycle amplification: define mutually-referencing fragments that spread into each other so a shallow-looking query expands exponentially server-side before depth limiters (which often only count literal nesting, not fragment expansion) catch it
+      ```graphql
+      query { user { ...F1 } }
+      fragment F1 on User { friends { ...F2 } }
+      fragment F2 on User { friends { ...F1 } }
+      ```
+- [ ] Directive-repetition overload: repeat `@include(if: true)`/`@skip(if: false)` hundreds of times on the same field to inflate AST-processing cost without increasing visible query depth
+- [ ] Array-argument amplification: request a large `first`/`limit`/`ids: [...]` argument value where the resolver doesn't cap pagination size server-side
 
 ### 7. Batched Query Attacks
 
@@ -92,6 +103,13 @@ origin: RedteamOpencode
 - [ ] Test all mutations without auth
 - [ ] Modify other users' data via mutations
 - [ ] Delete/destructive mutations access control
+
+### 9. CSRF & Content-Type Tricks
+
+- [ ] Check whether GraphQL accepts queries/mutations via `GET` with query-string params — if so and the response uses cookie-based auth with no CSRF token, a bare `<img src>`/link can trigger a state-changing mutation (GraphQL over GET is a common oversight since most CSRF training focuses on POST)
+- [ ] Check whether the endpoint accepts `Content-Type: text/plain` or `multipart/form-data` with a JSON-shaped body — a simple-request Content-Type avoids the CORS preflight, enabling cross-site POST CSRF even when the app "requires POST"
+- [ ] Confirm SameSite cookie attribute and Origin/Referer validation on the GraphQL endpoint specifically — it's often exempted from CSRF middleware applied to REST routes
+- [ ] Persisted-query / APQ bypass: if the app restricts to persisted query hashes in production, test whether arbitrary query bodies are still accepted alongside the `extensions.persistedQuery` field, or whether a new query can be persisted by an unauthenticated client (`APQ` registration abuse)
 
 ## What to Record
 

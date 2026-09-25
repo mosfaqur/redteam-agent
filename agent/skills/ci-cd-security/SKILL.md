@@ -63,6 +63,12 @@ run_tool gitleaks detect --source "$DIR" --no-git
 
 Flag `pull_request_target` workflows that expose secrets while checking out untrusted pull-request code, over-permissioned `GITHUB_TOKEN`, self-hosted runner compromise paths, unpinned third-party actions, and Actions cache poisoning. Do not dispatch `workflow_dispatch` or publish a cache.
 
+Also grep the workflow YAML for untrusted-context expression injection — `${{ github.event.issue.title }}`, `${{ github.event.pull_request.title }}`, `${{ github.head_ref }}`, or any `github.event.*` field interpolated directly into a `run:` shell step rather than passed as an `env:` variable. That pattern lets an external contributor's PR/issue title execute arbitrary shell in the runner context. Also check for a `workflow_run` trigger combined with artifact download from the triggering (untrusted) run, and for third-party actions pinned to a mutable tag (`@v3`) or branch name instead of a commit SHA — both are supply-chain injection points:
+```bash
+grep -nE '\$\{\{\s*github\.(event|head_ref)' "$DIR"/**/*.yml 2>/dev/null
+grep -nE 'uses:\s*[^@]+@(v[0-9]+|main|master)\s*$' "$DIR"/**/*.yml 2>/dev/null
+```
+
 ### 4. Review GitLab Variables and Triggers
 
 Enumerate public project metadata, protected variables, pipeline definitions, and trigger/webhook references without starting a pipeline:
@@ -75,6 +81,8 @@ run_tool git ls-remote https://HOST/ORG/REPO.git
 ```
 
 Record exposed variables, masked-value misuse, trigger tokens, protected-ref assumptions, and webhook endpoints. Never POST a pipeline trigger or use a discovered variable to authenticate elsewhere.
+
+Check the pipeline YAML for a remote `include:` directive pointing at a project/ref the target does not control (`include: {project: 'external/group', ref: 'main'}`), which lets an outside party inject pipeline stages, and for a `rules:`/`only:` condition that runs on `merge_request_event` with access to CI/CD variables meant for protected branches only.
 
 ### 5. Search Repository History and Secret Material
 
@@ -102,6 +110,45 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 https://HOST/ORG/REPO/-/jobs
 ```
 
 Flag dependency confusion, typosquatting exposure, mutable action/image references, artifact or build poisoning, and unsigned CI webhooks. No package install, artifact upload, cache write, or webhook delivery belongs in enumeration.
+
+Also check package manifests for an internal/private package name that is not registered on the public registry (dependency-confusion candidate), a `postinstall`/`preinstall` lifecycle script in `package.json` or a `setup.py` with executable code that runs on `pip install`, and whether build provenance (SLSA attestation, Sigstore/cosign signature) is present and verified before deployment or only advisory. A missing provenance check on a pipeline that auto-deploys pulled artifacts is a supply-chain gap worth recording even without a proof-of-concept substitution.
+
+### 7. Poisoned Pipeline Execution (PPE) and Runner Trust Boundaries
+
+Distinguish direct PPE (attacker-controlled pipeline definition runs directly, e.g. a branch the attacker can push to) from indirect PPE (attacker-controlled *input* — a PR title, issue body, commit message, or a file the pipeline reads — is interpolated into a trusted pipeline run). Enumerate which trigger types a discovered pipeline honors before assuming either class applies:
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://HOST/ORG/REPO/-/raw/main/.gitlab-ci.yml
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://HOST/ORG/REPO/.github/workflows/
+grep -nE 'pull_request_target|workflow_run|on:\s*\[?.*(issue_comment|pull_request)' "$DIR"/**/*.yml 2>/dev/null
+```
+
+Record whether a self-hosted runner (versus an ephemeral GitHub/GitLab-hosted runner) executes the pipeline — a self-hosted runner that persists state between jobs is a much higher-value PPE target because a poisoned job can leave a backdoor for the *next* legitimate job, not just exfiltrate the current run's secrets. Never submit a PR, comment, or commit to trigger this; enumeration only.
+
+### 8. Secrets Exposure in Build Logs and Artifacts
+
+Check whether a build log, cached artifact, or downloadable log bundle contains a secret value the pipeline was supposed to mask, without triggering a new build:
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 http://HOST:8080/job/JOB_NAME/lastBuild/consoleText
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://HOST/api/v4/projects/PROJECT_ID/jobs/JOB_ID/trace
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://HOST/ORG/REPO/actions/runs/RUN_ID/logs
+grep -Eio 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|xox[baprs]-[0-9A-Za-z-]+|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$DIR"/scans/*.log 2>/dev/null
+```
+
+Flag `set -x`/`set +v` shell tracing left enabled around a secret-consuming step (echoes the value to the console log), a secret passed as a CLI argument (`--password=$SECRET`) rather than via stdin/env (arguments appear in process-list-style log capture and in `docker history` for build-time `ARG`), and a masking rule that only redacts an *exact* string match — a secret that gets base64-encoded, URL-encoded, or has whitespace appended before being printed bypasses provider-side log masking. Also check a public artifact/cache download for baked-in `.env` files or credentials committed during the build step.
+
+### 9. Dependency Confusion and Typosquatting Depth
+
+Beyond the manifest-scoped check in step 6, verify namespace/scope claims and registry precedence explicitly:
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://registry.npmjs.org/INTERNAL_PACKAGE_NAME
+run_tool curl -sS --connect-timeout 5 --max-time 20 https://pypi.org/pypi/INTERNAL_PACKAGE_NAME/json
+grep -nE '"registry"|index-url|extra-index-url' "$DIR"/repo/.npmrc "$DIR"/repo/pip.conf 2>/dev/null
+```
+
+A private package name that returns `404` on the public registry is a dependency-confusion candidate only when the build tool's resolution order is also confirmed — check `.npmrc`/`pip.conf`/`NuGet.config` for a missing or misordered `scope`-to-registry mapping (an unscoped `npm install` falls back to the public registry unless `.npmrc` pins the scope). Distinguish this from typosquatting, where the package name itself is a visually similar variant (`reqeusts` vs `requests`, `colour` vs `color`) of a legitimate public dependency already in the lockfile — grep the lockfile for near-duplicate names via edit-distance-1 comparison against the declared direct dependencies rather than assuming every unfamiliar name is malicious.
 
 ## References
 

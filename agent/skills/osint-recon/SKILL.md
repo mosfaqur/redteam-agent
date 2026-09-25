@@ -132,6 +132,115 @@ For images and documents surfaced during recon or leaked through the target:
 - [ ] Treat GPS/lat-lon as a geo-stalking lead only; confirm against another source before acting
 - [ ] Check images for steganographic payloads when a challenge or target hints at hidden data
 
+### 6. Internet-Wide Asset & Attack-Surface Search
+
+    # Shodan (requires API key) — exposed services/banners tied to the org's ASN or IP range
+    curl -s "https://api.shodan.io/shodan/host/search?key=$SHODAN_API_KEY&query=org:%22<org>%22" | jq '.matches[] | {ip_str, port, org, hostnames}'
+    # Favicon-hash pivot — reuse the mmh3 hash computed by web-recon to find sibling instances
+    curl -s "https://api.shodan.io/shodan/host/search?key=$SHODAN_API_KEY&query=http.favicon.hash:<hash>" | jq '.matches[].ip_str'
+
+    # Censys (requires API creds) — certificate and service search
+    curl -s -u "$CENSYS_API_ID:$CENSYS_API_SECRET" "https://search.censys.io/api/v2/hosts/search?q=services.tls.certificates.leaf_data.subject.organization:%22<org>%22" | jq '.result.hits'
+
+    # ASN / IP-range enumeration for the org (ties recon back to real infrastructure, not just the one hostname in scope)
+    whois -h whois.radb.net -- "-i origin $(whois <domain> | grep -i 'OriginAS' | awk '{print $2}')" 2>/dev/null
+    curl -s "https://api.bgpview.io/asn/<ASN>/prefixes" | jq '.data.ipv4_prefixes[] | {prefix, description}'
+
+    # Public cloud storage bucket guessing (S3/GCS/Azure) from org/product naming
+    for suffix in "" -prod -dev -staging -backup -assets -static -files -data -logs; do
+      b="<org>${suffix}"
+      curl -s -o /dev/null -w "%{http_code} https://${b}.s3.amazonaws.com/\n" "https://${b}.s3.amazonaws.com/"
+      curl -s -o /dev/null -w "%{http_code} https://storage.googleapis.com/${b}/\n" "https://storage.googleapis.com/${b}/"
+      curl -s -o /dev/null -w "%{http_code} https://${b}.blob.core.windows.net/\n" "https://${b}.blob.core.windows.net/"
+    done
+
+    # GitHub/GitLab code search dorking for leaked secrets referencing the target domain
+    curl -s "https://api.github.com/search/code?q=%22<domain>%22+password" -H "Accept: application/vnd.github+json" | jq '.items[] | {repository: .repository.full_name, path, html_url}'
+    curl -s "https://api.github.com/search/code?q=%22<domain>%22+(api_key+OR+secret+OR+token)" | jq '.items[] | {path, html_url}'
+
+    # Job postings — tech stack and internal tool names leak through hiring pages
+    curl -s "https://api.github.com/search/repositories?q=org:<org-github>&sort=updated&per_page=20" | jq '.items[] | {name, description, language}'
+
+### 7. DNS Attack-Surface Depth
+
+    # Zone transfer attempt (misconfiguration check — low hit rate but zero-cost)
+    for ns in $(dig +short NS <domain>); do
+      dig axfr <domain> @"$ns"
+    done
+
+    # SPF/DKIM/DMARC posture (feeds mail-dns-services and phishing/spoofing risk assessment)
+    dig +short TXT <domain> | grep -i spf
+    dig +short TXT _dmarc.<domain>
+    dig +short TXT default._domainkey.<domain>
+
+    # Reverse DNS sweep across the discovered IP range to surface unlisted vhosts
+    for ip in $(dig +short A <domain>); do
+      dig -x "$ip" +short
+    done
+
+    # Passive DNS via crt.sh subdomain harvest feeding straight into subdomain-enumeration
+    curl -s "https://crt.sh/?q=%25.<domain>&output=json" | jq -r '.[].name_value' | sed 's/\*\.//g' | sort -u
+
+### 8. Search-Engine & Source-Repository Dorking
+
+Beyond the direct GitHub code-search calls in Section 6, run manual dork queries against
+general search engines and other code hosts — these surface indexed content the GitHub API
+search misses (private-looking paths that got crawled, PDFs, exposed panels):
+
+    # Google/Bing dorks (run via WebSearch tool or browser, not curl — most engines block scripted queries)
+    site:<domain> filetype:pdf OR filetype:xls OR filetype:sql OR filetype:log
+    site:<domain> inurl:admin OR inurl:login OR inurl:internal
+    site:<domain> "index of /" intitle:"index of"
+    site:pastebin.com "<domain>"
+    site:trello.com OR site:notion.so "<domain>"
+    intext:"<domain>" ext:env OR ext:config OR ext:yml
+
+    # GitLab code search (self-hosted or gitlab.com)
+    curl -s "https://gitlab.com/api/v4/search?scope=blobs&search=<domain>" -H "PRIVATE-TOKEN: $GITLAB_TOKEN" | jq '.[] | {project_id, path, ref}'
+
+    # Bitbucket / SourceHut spot checks — no unauthenticated code-search API; check org existence
+    curl -s "https://api.bitbucket.org/2.0/repositories/<org>" | jq '.values[] | {name, links: .links.html.href}'
+
+    # Docker Hub — image tags may leak internal env/config via history or accompanying README
+    curl -s "https://hub.docker.com/v2/repositories/<org>/?page_size=25" | jq '.results[] | {name, description}'
+
+    # npm / PyPI package registries — org-published packages can leak internal names, install scripts, tokens
+    curl -s "https://registry.npmjs.org/-/v1/search?text=%40<org>&size=20" | jq '.objects[].package | {name, version}'
+
+### 9. Employee & Technology Fingerprinting
+
+    # LinkedIn-derived name-format inference (manual — for phishing/password-spray username patterns)
+    # Once 2-3 real employee names are known, derive the org's email convention (first.last@, flast@, etc.)
+    # and cross-check candidate addresses against HIBP/h8mail before spraying.
+
+    # BuiltWith / Wappalyzer-style tech fingerprint via public API (requires key) — complements whatweb from web-recon
+    curl -s "https://api.builtwith.com/v21/api.json?KEY=$BUILTWITH_API_KEY&LOOKUP=<domain>" | jq '.Results[0].Result.Paths[].Technologies[] | {Name, Tag}'
+
+    # Wayback Machine job-posting / staff-page snapshots — historical "About/Team" pages often outlive current site content
+    curl -s "https://web.archive.org/cdx/search/cdx?url=<domain>/team*&output=json&fl=original,timestamp&collapse=urlkey" | jq '.[1:][]'
+
+### 10. Typosquat / Domain-Variation Monitoring
+
+Attacker-registered lookalike domains are both a phishing indicator and, if pointed at the
+same infra, an additional in-scope-adjacent attack surface to flag for the client:
+
+    # Generate common typosquat permutations (character swap, omission, homoglyph, TLD swap)
+    python3 -c "
+d='<domain-without-tld>'
+tld='.com'
+subs='qwertyuiopasdfghjklzxcvbnm'
+variants=set()
+for i in range(len(d)):
+    variants.add(d[:i]+d[i+1:])                      # omission
+    for c in subs:
+        variants.add(d[:i]+c+d[i+1:])                # substitution
+for v in variants:
+    print(v+tld)
+" | head -50
+
+    # Bulk-resolve candidates to find registered lookalikes
+    while read -r cand; do dig +short A "$cand" | head -1 | grep -q . && echo "$cand REGISTERED"; done < candidates.txt
+
 ## Priority Order
 
 1. CVE + version match with public PoC (immediate exploit value)

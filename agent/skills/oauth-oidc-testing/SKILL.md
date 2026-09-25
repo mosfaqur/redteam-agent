@@ -110,6 +110,34 @@ Replay one signed assertion once. Then submit one signature-wrapping variant and
 
 Test one safe `RelayState` lookalike for open redirect. Test IdP-initiated SSO once for missing-request, tenant, consent, or step-up bypass.
 
+### 10. Mix-Up and Multi-IdP Confusion
+
+When the relying party supports more than one authorization server (multiple social-login providers, or a dev/staging IdP left reachable alongside production), test whether a response from IdP-B is accepted on a callback that expects IdP-A. Compare `iss` validation against the endpoint the flow was actually initiated with, not just signature validity. This is the OAuth "mix-up attack": an attacker who controls one registered IdP can potentially inject a code/token meant to look like it came from the trusted one if the client doesn't bind the response to the specific authorization server it started with.
+
+### 11. Device Authorization Grant (Device Code Flow) Abuse
+
+If the target exposes a device flow (`device_authorization_endpoint` in discovery, or a "enter this code on another device" UI):
+- Check the user-code space size and rate limiting — short numeric codes with no throttling are brute-forceable to hijack a pending device session
+- Check the polling interval enforcement server-side vs. client-declared — a client ignoring `interval`/`slow_down` may reveal a race window
+- Test whether the verification URI requires re-authentication or just an authenticated session with no explicit user consent screen naming the requesting device
+
+### 12. Response Type / Response Mode Manipulation
+
+- [ ] Request an unregistered or hybrid `response_type` (`code token`, `code id_token`, `code id_token token`) to see if the server issues tokens via a less-audited code path
+- [ ] Force `response_mode=query` on a flow that expects `fragment` (or vice versa) — moving the token/code into the query string changes what gets logged (server access logs, `Referer` headers) versus what a fragment would have kept client-side only
+- [ ] `response_mode=form_post` CSRF: verify the POST target validates state/origin, since form_post responses aren't subject to normal cross-origin fragment protections
+
+### 13. Client Authentication Downgrade
+
+- [ ] If the client is registered as `confidential` (has a `client_secret`), test whether the token endpoint still accepts the request as a `public` client (no secret, or `token_endpoint_auth_method=none`) — a downgrade that removes the client-authentication factor entirely
+- [ ] Client secret in a public/mobile/SPA context: check bundled app/JS source for a hardcoded `client_secret` treated as if it were confidential
+
+### 14. RP-Initiated Logout and Session Termination Gaps
+
+- [ ] Trigger `end_session_endpoint` (RP-initiated logout) and confirm the IdP session, all linked RP sessions (single logout), and any long-lived refresh tokens are actually revoked — not just the local cookie cleared
+- [ ] Test `post_logout_redirect_uri` validation with the same rigor as `redirect_uri` (Section 3) — it is a common under-validated sibling parameter
+- [ ] Confirm a captured access/refresh token issued before logout is rejected afterward, not just no-longer-renewable
+
 ## References
 
 `references/vuln-checklists/A04-cryptographic-failures.md`, `references/vuln-checklists/A07-authentication-failures.md`, `references/vuln-checklists/A08-integrity-failures.md`, `references/api-security/API02-broken-authentication.md`, `references/payloads/jwt-payloads.md`, `references/tools/recon/curl.md`.

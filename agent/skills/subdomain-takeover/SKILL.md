@@ -68,8 +68,27 @@ Treat a generic CDN, WAF, `404`, NXDOMAIN, timeout, or `X-Cache: MISS` as inconc
 | Bitbucket | `*.bitbucket.io` | `server: Bitbucket` and `Repository not found` |
 | Surge | `*.surge.sh` | `server: surge.sh` and `project not found` |
 | ReadMe | A ReadMe project hostname | Provider unassigned-page body such as `Project not found`, plus matching ReadMe metadata when exposed |
+| Pantheon | `*.pantheonsite.io` | `server: nginx` with the body `The gods are wise, but do not know of the site which you seek.` |
+| Tumblr | `*.tumblr.com` (custom domain) | `Whatever you were looking for doesn't currently exist at this address` |
+| Unbounce | `*.unbouncepages.com` | `The requested URL was not found on this server.` combined with Unbounce-specific headers |
+| Wordpress.com | `*.wordpress.com` | `Do you want to register *.wordpress.com?` |
+| Zendesk | `*.zendesk.com` | `Help Center Closed` |
+| Firebase/Google Cloud | `*.firebaseapp.com`, `*.web.app` | `404 Not Found` combined with Firebase Hosting-specific headers and lack of a claimed project |
+| Cargo | `*.cargocollective.com` | `404 Not Found` with Cargo-specific body text |
+| Statuspage | `*.statuspage.io` | `You are being redirected` / statuspage-specific `page not found` body |
+| npm/Now (legacy Vercel) | `*.now.sh` | Same family as Vercel — `The deployment could not be found` |
 
 Use multiple matching signals. A signature alone is shared infrastructure and can produce false positives.
+
+### 4b. Non-DNS Takeover Vectors
+
+Not every takeover is a dangling CNAME — apply the same proof discipline (control-plane evidence, not just an error page) to these:
+
+- [ ] **Cloud storage bucket takeover**: a CNAME/alias or hardcoded asset URL points at an S3/GCS/Azure Blob bucket name that returns `NoSuchBucket`/`BucketNotFound` — the bucket name itself is unclaimed and registrable in that cloud account namespace, not just the DNS record
+- [ ] **SaaS custom-domain takeover without DNS dangling**: some platforms (Shopify, Webflow, Squarespace) allow attaching *any* unclaimed custom domain to a new tenant account even if the domain currently resolves elsewhere via a stale CNAME — verify via the platform's own domain-claim flow language, never by actually claiming
+- [ ] **Package/registry namespace takeover**: an internal build references an npm/PyPI/RubyGems/Docker Hub package name that was never published or was deleted — flag as dependency-confusion-adjacent (see `ci-cd-security`), not classic DNS takeover
+- [ ] **GitHub org/repo takeover**: a CI badge, webhook, or `.github.io` Pages source references a GitHub org/repo that was renamed or deleted — the old name becomes claimable and can serve attacker content under the org's trusted path
+- [ ] **Third-party email sender takeover** (SPF/DMARC-adjacent): SPF record `include:`s a decommissioned third-party sending domain/service — flag alongside `mail-dns-services` for spoofing risk rather than a web takeover
 
 ### 5. Capture the Live Fingerprint
 

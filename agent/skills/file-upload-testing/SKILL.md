@@ -74,6 +74,11 @@ origin: RedteamOpencode
 - [ ] PNG header + PHP code in IDAT chunk
 - [ ] Embed PHP in EXIF data: `exiftool -Comment='<?php system("id"); ?>' image.jpg`
 - [ ] Polyglot file: valid image that is also valid PHP
+- [ ] GIF/JAR polyglot: valid GIF trailer (`0x3B`) immediately followed by a ZIP local-file-header (`PK\x03\x04`) — the file renders as an image while `java -jar` or a ZIP tool reads it as an archive (classic GIFAR technique, still effective against upload validators that only check the leading bytes)
+- [ ] PDF/ZIP polyglot: valid `%PDF-1.` header with a ZIP central-directory record appended after `%%EOF` — passes PDF-magic checks while unzip tools still locate and extract the trailing archive
+- [ ] PHP/JPEG polyglot via JPEG comment segment (`FFFE`) instead of EXIF — some validators strip EXIF but not comment segments, and some PHP configurations execute code placed there when the file is `include()`'d rather than served directly
+- [ ] Truncated/malformed magic bytes: send only the first 4-8 bytes of a valid header before the payload — some content-sniffing validators read a fixed prefix length and stop, never validating the rest of the structure
+- [ ] Content-Type vs magic-byte mismatch matrix: test all four combinations (correct extension/correct bytes, correct extension/wrong bytes, wrong extension/correct bytes, wrong extension/wrong bytes) against the same endpoint to map which signal the validator actually trusts
 
 ### 5. Webshell Payloads
 
@@ -106,6 +111,47 @@ origin: RedteamOpencode
 - [ ] Upload many files rapidly — check rate limits
 - [ ] Zip bomb / decompression bomb
 - [ ] Image with huge dimensions (pixel flood)
+
+### 9. Server-Side Processing Abuse
+
+- [ ] ImageMagick: test ImageTragick-style vectors — MVG/SVG files with `push graphic-context`/`image over` reading local files or shelling out (`\|ls "-la"`) if a vulnerable delegate is in use
+- [ ] Ghostscript: PostScript/EPS payload testing `-dSAFER` sandbox bypass (`{ null exec } ... .forceput` chains) when PDF/EPS is rasterized server-side
+- [ ] FFmpeg: HLS/M3U8 playlist upload referencing local `file://` or `concat:` inputs to read arbitrary files during transcode
+- [ ] Office conversion (LibreOffice/unoconv): DOCX/ODT macro or `<< >>` field-code injection that triggers SSRF or command execution during headless conversion
+- [ ] PDF generation: check whether user-supplied HTML/CSS-to-PDF renderers (wkhtmltopdf, headless Chrome print) fetch remote resources — chain into `ssrf-testing` via `<img src="http://internal-host/">` or `<link>`/`@import`
+- [ ] Thumbnail/EXIF pipelines: confirm whether metadata extraction itself parses untrusted binary structures (libexif, ExifTool CVE-class parsers) rather than just displaying the values
+
+### 10. Cloud / Object-Storage Upload Abuse
+
+- [ ] If uploads go through a pre-signed PUT URL, check whether the signature is scoped to one exact key/path or can be reused for an arbitrary key (path traversal in the object key)
+- [ ] Check pre-signed URL expiry — an excessively long-lived URL is a data-exposure finding on its own
+- [ ] Azure SAS token: check scope (`sp=` permissions) for `w`/`d` beyond what the upload feature needs, and container-level vs blob-level scope
+- [ ] Confirm the storage bucket/container itself is not publicly listable once the object lands there (chain into `cloud-testing`)
+
+### 11. Race Conditions in Upload Processing
+
+- [ ] TOCTOU: request the uploaded file's direct URL in a tight loop immediately after submission, before an async antivirus/content scan completes — confirm whether the file is servable/executable during that window
+- [ ] Parallel upload of the same filename to test overwrite-vs-rename handling and whether a partially written file is briefly servable
+
+### 12. Archive Extraction and Zip-Slip Deep Dive
+
+- [ ] Classic zip-slip: entry name `../../../../etc/cron.d/persist` inside an otherwise valid ZIP/TAR/JAR to write outside the intended extraction directory
+- [ ] Absolute-path entry: an entry name starting with `/` (`/etc/passwd`) — some extractors treat a leading slash as relative to the extraction root, others honor it as absolute and overwrite the real file
+- [ ] Windows-style traversal inside a cross-platform extractor: `..\\..\\windows\\win.ini` or backslash-mixed separators, which some Linux-built extraction libraries fail to normalize before writing
+- [ ] Symlink-based extraction escape: a TAR entry that first creates a symlink (`link -> /var/www/html`) and a second entry that writes through that symlink path — bypasses a path-traversal filter that only checks each entry name literally, not the resolved target
+- [ ] Nested-archive traversal: a ZIP containing another ZIP/TAR whose *inner* entry names carry the traversal payload, for a pipeline that recursively extracts nested archives without re-validating each layer
+- [ ] Decompression-ratio/zip-bomb interaction: combine a zip-slip entry name with a highly compressed payload so a single malicious entry both escapes the directory and exhausts disk/inode budget on write — record this as two separate findings (path traversal, resource exhaustion) even when delivered in one archive
+- [ ] Duplicate-entry overwrite: two entries with the same resolved path in one archive, where the extractor processes them in order — can overwrite a validation-checked file with a second, unchecked payload after the scanner has already approved entry #1
+
+```bash
+python3 -c "
+import zipfile
+with zipfile.ZipFile('slip.zip', 'w') as z:
+    z.writestr('../../../../tmp/zipslip_poc.txt', 'zip-slip poc')
+"
+```
+
+Confirm only by observing the resulting file path server-side (via a subsequent authorized read, not a destructive write target); never target a path outside the engagement's writable scratch area.
 
 ## What to Record
 

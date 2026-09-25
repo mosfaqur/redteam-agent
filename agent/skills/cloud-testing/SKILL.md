@@ -46,7 +46,7 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata: true' 'http://
 run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
 run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/project/project-id
 ```
-If metadata is reachable only through an application URL, save the request/response and cross-reference the `ssrf-testing` skill; do not pivot into a cloud write.
+If metadata is reachable only through an application URL, save the request/response and cross-reference the `ssrf-testing` skill; do not pivot into a cloud write. When the SSRF sink allows a custom `Redirects`/hop count, also test the AWS IMDSv1 fallback path (no token header at all) and a low `X-Forwarded-For`/hop-limit-1 request — some proxied SSRF paths strip the `X-aws-ec2-metadata-token` header but still reach IMDSv1. For containerized/serverless workloads, check the ECS task-metadata endpoint (`http://169.254.170.2/v2/credentials/$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`) and Lambda's `/2018-06-01/runtime/invocation/next` for leaked environment credentials in the same SSRF chain.
 ### 3. Review Roles and Managed Identities
 
 Map instance roles, workload identities, service accounts, and policy attachments without changing them:
@@ -104,7 +104,21 @@ run_tool az ad sp list --output json
 run_tool gcloud iam service-accounts list --project PROJECT_ID --format=json
 ```
 Never claim ownership of abandoned SaaS resources. Report provider, tenant, resource identifier, and evidence separately; ownership claims require an explicit in-scope administrative source.
-### 7. Check Kubernetes and Cloud Credential Overlap
+### 7. Trust and Federation Abuse Paths
+
+Enumerate cross-account role trust, OIDC federation, and delegated-identity boundaries without assuming a role you were not issued:
+```bash
+run_tool aws iam get-role --role-name ROLE_NAME --query 'Role.AssumeRolePolicyDocument'
+run_tool aws iam list-open-id-connect-providers --output json
+run_tool aws sts get-caller-identity --output json
+run_tool az ad app federated-credential list --id APP_ID --output json
+run_tool gcloud iam workload-identity-pools list --project PROJECT_ID --format=json
+run_tool gcloud iam workload-identity-pools providers list --workload-identity-pool POOL_ID --location global --project PROJECT_ID --format=json
+```
+Flag an overly broad `sts:AssumeRole` trust principal (`"Principal": "*"` or a wildcard external ID), a GitHub Actions OIDC trust policy missing a `repo:`/`ref:` subject condition (any workflow in any repo can assume the role), and a GCP workload-identity-pool provider with an unrestricted `attribute-condition`. Record the exact trust document; do not attempt the assumption unless a valid external-ID/subject match is already in scope.
+
+Also check for dangling cloud-resource takeover: a DNS CNAME pointing at a deprovisioned S3 bucket, Azure Blob endpoint, or GCS bucket name, and a still-valid pre-signed URL or SAS token with an excessive expiry or overly broad scope (write/delete instead of read).
+### 8. Check Kubernetes and Cloud Credential Overlap
 
 Inventory service-account files, projected tokens, cloud environment-variable names, kubeconfigs, and secret references without printing values:
 ```bash
@@ -113,6 +127,31 @@ jq -r '.items[] | {namespace:.metadata.namespace,name:.metadata.name,serviceAcco
 run_tool kubectl auth can-i --list
 ```
 Immediately write every discovered credential to `$DIR/auth.json` and reference its source in `$DIR/intel.md`; never commit or print secret values.
+### 9. Serverless, CI Runner, and Local Credential-Cache Theft
+
+Check function-level and impersonation-chain credential paths beyond the base instance metadata service, and enumerate local credential-cache files that carry cloud tokens outside IMDS:
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 http://169.254.170.2/v2/credentials/$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata: true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net'
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=TARGET_AUDIENCE'
+run_tool gcloud iam service-accounts get-iam-policy IMPERSONATED_SA --format=json
+run_tool aws sts assume-role --role-arn ROLE_ARN --role-session-name test --tags Key=aws:PrincipalTag/team,Value=eng
+```
+Flag a CI/CD runner (self-hosted GitHub Actions, GitLab runner, Jenkins agent) executing inside a cloud VM or pod that inherits the node's instance-profile/managed-identity/service-account credentials instead of a scoped OIDC-federated identity — that is a direct lateral path from pipeline compromise (cross-reference `ci-cd-security`) to full cloud-account takeover. Also check for locally cached credential material left behind by an application, CI job, or interactive session: `~/.aws/credentials`, `~/.azure/msal_token_cache.json`, `~/.config/gcloud/legacy_credentials/*/adc.json`, and Kubernetes-mounted `token`/`ca.crt` under `/var/run/secrets/`. A GCP service-account with `iam.serviceAccounts.actAs`/`iam.serviceAccounts.getAccessToken` on a higher-privileged SA is an impersonation-chain escalation path — record the chain, do not walk it. Read-only discovery only; never generate or consume an impersonated token beyond confirming the API accepts the request shape.
+
+### 10. Provider-Specific Misconfiguration Patterns
+
+Beyond generic ACL/IAM review, check these concrete, provider-specific patterns without mutating anything:
+```bash
+run_tool aws iam simulate-principal-policy --policy-source-arn ROLE_ARN --action-names 's3:GetObject' 'iam:PassRole' --resource-arns '*'
+run_tool aws lambda get-policy --function-name FUNCTION_NAME
+run_tool az functionapp keys list --name FUNC_APP --resource-group RG
+run_tool az webapp config appsettings list --name APP --resource-group RG
+run_tool gcloud functions describe FUNCTION_NAME --format=json
+run_tool gcloud run services get-iam-policy SERVICE_NAME --region REGION --format=json
+```
+Flag an AWS Lambda resource policy with `"Principal": "*"` and no `SourceArn`/`SourceAccount` condition (any AWS account can invoke), an `iam:PassRole` grant with a wildcard resource (privilege-escalation primitive when paired with any role-attaching action), an Azure Function/Web App with app settings exposing connection strings in plaintext instead of Key Vault references, and a GCP Cloud Run service with `allUsers`/`allAuthenticatedUsers` in its IAM policy binding. These are authorization/configuration findings from read-only policy retrieval — do not invoke, deploy, or update any of them.
+
 ### Lab objective recall closure
 
 When the active profile lists a cloud identity, metadata, or storage objective, requeue the one exact workflow named by its `recall_branches` instead of substituting a broad account dump. Save the response or policy artifact to `$DIR/scans/cloud-objective.txt`, run `python3 ./scripts/lab_objective.py snapshot "$DIR"`, and hand off `objective=<name> status=solved|requeued evidence=<path> next=<exact action>`.

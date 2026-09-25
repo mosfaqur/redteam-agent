@@ -63,6 +63,8 @@ run_tool docker -H tcp://HOST:2375 exec CONTAINER_ID sh -c 'id; mount; ls -la /p
 
 Treat cgroup `release_agent`/v1 escape, writable host mounts, and namespace sharing as candidates, not as permission to modify the host. Preserve exact container, mount, capability, and runtime evidence.
 
+Also check for these additional escape-adjacent conditions from the inspect metadata alone: a mounted `docker.sock` inside the container (`/var/run/docker.sock` in `.Mounts` — grants a docker-in-docker escape via the same API), `CAP_SYS_MODULE`/`CAP_SYS_PTRACE`/`CAP_DAC_READ_SEARCH` in `CapAdd`, a `SecurityOpt` list missing `no-new-privileges`, an AppArmor/seccomp profile of `unconfined`, and a writable `/proc/sys/kernel/core_pattern` path (core-dump handler escape). A runtime version match to a known runc/containerd breakout (e.g. CVE-2024-21626 working-directory FD leak, CVE-2019-5736 runc `/proc/self/exe` overwrite) is a triage signal only — do not attempt the breakout here.
+
 ### 4. Enumerate Registries and Anonymous Push/Pull Policy
 
 Check the registry API, catalog, tags, manifests, and upload policy without downloading or publishing an image:
@@ -76,6 +78,13 @@ run_tool skopeo inspect docker://HOST:5000/IMAGE
 ```
 
 Anonymous pull is a confirmed data-exposure path when catalog, tags, or manifests are readable. An anonymous push capability is reportable from authorization policy only; never upload a layer, alter a tag, or pull an untrusted image on the host.
+
+Check image-history metadata (without pulling the full layer) for secrets baked into build steps, and check for image/tag squatting exposure — a mutable `:latest`/floating tag that downstream automation pulls unpinned, and a namespace that could be typosquatted against an internal-sounding image name:
+```bash
+run_tool skopeo inspect --config docker://HOST:5000/IMAGE
+run_tool curl -sS --connect-timeout 5 --max-time 20 http://HOST:5000/v2/IMAGE/manifests/latest -H 'Accept: application/vnd.docker.distribution.manifest.v2+json'
+```
+A registry served over plaintext HTTP (no TLS) or with a self-signed cert accepted without `--insecure-registry` warnings is a separate transport-security finding — record it alongside the anonymous-access result.
 
 ### 5. Inspect Build Contexts and Secret Material
 
@@ -105,6 +114,20 @@ run_tool trivy image IMAGE_REF
 ```
 
 Prefer registry metadata and remote scanners. Never pull or run an untrusted image on the host without explicit approval; a version match is a triage signal, not proof of exploitability.
+
+### 7. Deepen Escape Primitive Evidence (Privileged Mode, Socket, cgroup)
+
+Gather the exact metadata that distinguishes a theoretical escape class from a confirmed capability, without executing the escape:
+
+```bash
+run_tool docker -H tcp://HOST:2375 inspect --format '{{json .HostConfig.Devices}}' CONTAINER_ID
+run_tool docker -H tcp://HOST:2375 inspect --format '{{json .HostConfig.SecurityOpt}}' CONTAINER_ID
+run_tool docker -H tcp://HOST:2375 exec CONTAINER_ID sh -c 'ls -la /var/run/docker.sock 2>/dev/null; cat /proc/self/status | grep CapEff' # exploit-developer-only after confirmation
+```
+
+A **privileged container** (`HostConfig.Privileged: true`) has every device node under `/dev` bind-mounted and every capability granted — record it as a full host-equivalent escape candidate and do not additionally validate each capability separately. A **mounted `docker.sock`** (`/var/run/docker.sock` present as a bind mount, distinct from a TCP API exposure) lets a process with only the Docker CLI/SDK inside the container create a new privileged container on the host through the same socket; the escape primitive is "control-plane access," not a kernel exploit, so record the mount path and stop there. For **cgroup v1 `release_agent` escape**, the exact precondition chain to record (never execute past inspection) is: cgroup v1 filesystem mounted and writable inside the container (`mount | grep cgroup`), a `notify_on_release` flag settable to `1`, and a writable `release_agent` file at the cgroup root — when all three hold, a process can register an arbitrary host-executed script that fires once the cgroup's last process exits. Treat the presence of all three preconditions together as `vuln_confirmed`-worthy evidence; treat any single precondition alone as informational.
+
+Cross-reference known runtime-breakout CVEs by exact version match only, never by exploitation: CVE-2024-21626 (runc `WORKDIR`/`--mount` file-descriptor leak, runc ≤1.1.11), CVE-2022-0492 (cgroup v1 `release_agent` reachable even without `CAP_SYS_ADMIN` via legacy hierarchy misconfiguration), CVE-2019-5736 (runc `/proc/self/exe` overwrite during `docker exec`/attach), and CVE-2021-30465 (containerd symlink-race TOCTOU on bind-mount resolution enabling host-filesystem escape).
 
 ## References
 

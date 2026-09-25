@@ -44,6 +44,7 @@ Run the protocol-specific enumeration (see the family skills). Always try:
 - `run_tool hydra -L users.txt -P pass.txt HOST PROTO -t 4 -W 5` — bounded, rate-limited, only when a
   user list or product default is known. Never broad brute force.
 - Auth-method analysis (e.g. `ssh-auth-methods`, anonymous LDAP bind, SMB signing).
+- Cross-service auth-bypass patterns to check on every relevant target before falling back to credential brute force: SMB null/guest session (`smb-netbios`), LDAP anonymous bind (`ldap-kerberos`), Redis/MongoDB/CouchDB no-auth-by-default (`database-services`), VNC `None` security type (`remote-access-services`), NFS UID-spoofing trust bypass (`snmp-ftp-nfs`), RDP legacy security layer accepting pre-NLA negotiation (`remote-access-services`) — each is a distinct "protocol trusts the client" class, not a weak-password class, and should be ruled out first since it needs zero valid credentials.
 
 ### 4. Known-Vuln Mapping
 ```bash
@@ -123,6 +124,16 @@ PY
 
 Handoff by evidence: proprietary or binary framing → `custom-protocol-reverse-engineering`; SIP/VoIP signaling or media ports → `voip-sip-testing`; router/camera/NAS/gateway admin interfaces and ubus/rpcd-style RPC → `embedded-device-testing`; a FastCGI/FPM listener (9000/9090) → `fastcgi-service-testing`. Replace `SELECTED` and `CASE_ID` with the mapped skill and current case id, then emit `handoff skill=SELECTED case=CASE_ID host=HOST port=PORT evidence=$DIR/scans/unknown-first-response.bin`. Use `REQUEUE` for the handoff and copy `service_class=... evidence=...` from `$DIR/scans/unknown-outcome.txt` into the `### Case Outcomes` line so the next agent does not re-fingerprint. Do not attempt exploit development in network-analyst.
 
+### 7. Cross-Protocol and Generic Techniques
+
+Apply these regardless of which family skill owns the deep dive — they catch issues the per-protocol scripts miss:
+
+- [ ] **Protocol confusion / cross-protocol scripting**: send an HTTP request to a non-HTTP port (and vice versa) — some services echo enough of the malformed input to reveal a proxy misconfiguration or a service that speaks multiple protocols on one port (common on embedded/IoT devices)
+- [ ] **TLS-wrapped variant of a plaintext service**: many services listed above also have a `-s`/implicit-TLS sibling port (e.g. LDAPS 636 vs LDAP 389, SMTPS 465 vs SMTP 25) — a weaker auth policy on one variant than the other is itself a finding
+- [ ] **Service fingerprint confidence check**: when `nmap -sV` returns a low-confidence guess, corroborate with a raw banner grab (`nc`) and a protocol-specific NSE `-info` script before trusting the version for CVE mapping — false-positive CVE reports waste exploit-developer's bounded budget
+- [ ] **UDP service reachability**: `-sU` scans are lossy; retry a single service with `--max-retries 3 --defeat-icmp-ratelimit` before marking a UDP port `clean` — a closed-vs-filtered-vs-open misclassification on UDP is common and silently drops real findings
+- [ ] **Shared-credential pivot**: once one service's credentials are validated, replay them (read-only, one attempt per additional service) against other same-host or same-subnet services before requesting a fresh spray — credential reuse across DB/SSH/SMB/web-admin on one host is extremely common and cheaper than re-enumerating
+
 ## High-Value Fast Wins
 
 | Finding | Why it matters |
@@ -131,9 +142,19 @@ Handoff by evidence: proprietary or binary framing → `custom-protocol-reverse-
 | Null/guest SMB session | user/group/share enumeration |
 | Redis / MongoDB / Elasticsearch unauthenticated | data access, often RCE |
 | SNMP `public`/`private` community | system/config disclosure |
-| DNS zone transfer (AXFR) | full internal name map |
+| DNS zone transfer (AXFR, incl. per-NS/IXFR variants) | full internal name map |
 | Default DB credentials | data access / code execution |
 | LDAP anonymous bind | directory enumeration |
+| RDP NLA-disabled / legacy security layer offered | pre-auth cleartext-capable negotiation |
+| VNC `None` auth security type | direct screen/keyboard access |
+| SMTP open relay / smuggling-capable `<CR><LF>.` handling | spoofed mail delivery, filter bypass |
+| Memcached / rsync exposed with no module auth | unauth data read, UDP amplification (memcached) |
+| NFS `no_root_squash` + UID spoofing | root-equivalent file read/write |
+| Missing/weak SPF+DMARC (`p=none`, `+all`) | domain spoofing, phishing pretext |
+| SMB signing disabled / LDAP signing not required | NTLM relay prerequisite (see `smb-netbios`) |
+| WinRM reachable with valid creds | immediate remote command-exec primitive |
+| TFTP reachable on a network device | often holds full running-config with embedded secrets |
+| Credential reuse across services on one host | turns one weak-password finding into full-host compromise |
 
 ## Safety / Budget
 

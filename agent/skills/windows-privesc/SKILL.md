@@ -100,7 +100,78 @@ run_tool nxc smb HOST -u USER -p PASS -x 'where powershell.exe; where certutil.e
 
 Map writable scripts and trusted binaries to LOLBins and PowerShell execution options. Treat an AMSI bypass or constrained-language escape as exploit-developer-owned execution.
 
-### 7. Stored Credentials and Local Secrets
+### 7. UAC Bypass, COM Hijacking, and Auto-Elevate Binaries
+Enumerate auto-elevating binaries (manifest `autoElevate=true`), COM CLSID registrations under user-writable hives, and known UAC-bypass binary/DLL pairs. Confirm only the registry/file evidence; leave the actual bypass trigger to exploit-developer.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKCU\Software\Classes\CLSID" /s /f "InprocServer32"'
+run_tool nxc smb HOST -u USER -p PASS -x 'icacls C:\Windows\System32\fodhelper.exe'
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKCU\Software\Classes\ms-settings\Shell\Open\command"'
+run_tool nxc smb HOST -u USER -p PASS -x 'sigcheck -m C:\Windows\System32\fodhelper.exe'
+```
+
+Record whether `HKCU\Software\Classes` is writable by the current user and whether a known auto-elevate binary (`fodhelper.exe`, `computerdefaults.exe`, `sdclt.exe`, `eventvwr.exe`) resolves a registry key or DLL search path the current user controls.
+
+### 8. Named-Pipe and Service-Account Impersonation Chains
+When `SeImpersonatePrivilege` or `SeAssignPrimaryTokenPrivilege` is present on a service account, map the exact Potato-family prerequisite (RPC/DCOM reachability, `BITS`/print-spooler availability, EFS-RPC reachability) rather than assuming any variant applies.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'sc.exe query spooler'
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SYSTEM\CurrentControlSet\Services\BITS"'
+run_tool nmap -p 135,445,593 --script msrpc-enum HOST
+```
+
+Record which Potato variant's prerequisite (RPC activation service for `RoguePotato`/`JuicyPotatoNG`, spooler for `PrintSpoofer`, BITS for `EfsPotato`) is actually present; do not assume RPC 135 alone proves the primitive.
+
+### 9. Credential Guard, LSA Protection, and DPAPI Artifacts
+Record whether Credential Guard / LSA protection is enabled (changes which dumping technique is even viable) and locate DPAPI master-key/credential-blob artifacts without decrypting them here.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SYSTEM\CurrentControlSet\Control\LSA" /v RunAsPPL'
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard" /v EnableVirtualizationBasedSecurity'
+run_tool nxc smb HOST -u USER -p PASS -x 'dir /a C:\Users\USER\AppData\Roaming\Microsoft\Protect'
+run_tool nxc smb HOST -u USER -p PASS -x 'dir /a C:\Users\USER\AppData\Local\Microsoft\Credentials'
+```
+
+`RunAsPPL=1` or VBS/Credential Guard enabled means a plain LSASS dump will fail or yield unusable material — note this so exploit-developer picks a compatible technique instead of a doomed attempt.
+
+### 10. DLL Search-Order and Phantom-DLL Hijacking
+Distinct from step 3's DLL/registry checks, enumerate the actual search-order abuse surface: a service or scheduled application that loads a DLL by name only (no full path), a writable directory earlier in the process's search order than the legitimate DLL's location, and phantom DLLs referenced by an application manifest or import table that do not exist on disk anywhere. Confirm write access to the candidate directory only; do not drop a DLL.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'icacls "C:\Program Files\App"'
+run_tool nxc smb HOST -u USER -p PASS -x 'where /R C:\Windows System32\*.dll'
+run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-Process | Select-Object Path,Modules"'
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs"'
+```
+
+Record the exact load-order gap: application directory (searched first for unqualified `LoadLibrary` calls), a writable `PATH` entry, or a missing DLL an installed app expects. A writable directory that appears before the legitimate DLL's location in the effective search order is the confirmable evidence; do not plant a hijack DLL from this skill.
+
+### 11. Vulnerable Driver (BYOVD) and Kernel-Exploit Surface
+Enumerate loaded and installed third-party kernel drivers for known-vulnerable signed drivers (bring-your-own-vulnerable-driver abuse) and unpatched kernel privilege-escalation candidates. Record only the driver name/version/hash match; do not load or exploit a driver here.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'driverquery /v /fo csv'
+run_tool nxc smb HOST -u USER -p PASS -x 'powershell -NoProfile -Command "Get-CimInstance Win32_SystemDriver | Select-Object Name,PathName,State"'
+run_tool nxc smb HOST -u USER -p PASS -x 'systeminfo'
+run_tool searchsploit windows kernel $(nxc smb HOST -u USER -p PASS -x 'systeminfo' 2>/dev/null | grep -i 'OS Version')
+```
+
+Match driver file hashes/names against a known-vulnerable-driver list (e.g. loldrivers-style signed drivers with arbitrary read/write IOCTLs) and correlate `systeminfo`'s build number with unpatched local kernel CVEs; leave IOCTL exploitation to exploit-developer.
+
+### 12. Group Policy Preferences and Deployment-Artifact Credentials
+Check for legacy GPP `cpassword` blobs (reversible RC4, trivially decryptable), unattended-install answer files, and SCCM/WSUS deployment artifacts left on disk or SYSVOL. These frequently contain cleartext or weakly-obfuscated domain credentials.
+
+```bash
+run_tool nxc smb HOST -u USER -p PASS -x 'findstr /S /I cpassword \\HOST\SYSVOL\*.xml'
+run_tool nxc smb HOST -u USER -p PASS -x 'dir /s /b C:\Windows\Panther\unattend.xml C:\Windows\Panther\Unattend\Unattend.xml'
+run_tool nxc smb HOST -u USER -p PASS -x 'dir /s /b C:\Windows\System32\sysprep\sysprep.xml'
+run_tool nxc smb HOST -u USER -p PASS -x 'reg query "HKLM\SOFTWARE\Microsoft\SMS\Mobile Client"'
+```
+
+A `cpassword` attribute in a Group Policy Preferences XML is a direct, reversible credential exposure (public RC4 key) — record it as confirmed, not just candidate, since decryption requires no target interaction.
+
+### 13. Stored Credentials and Local Secrets
 Check local users, SAM-related registry exposure, DPAPI-protected credential stores, credential manager entries, and service-account material. Use a bounded account or store selection and redact values in evidence.
 
 ```bash

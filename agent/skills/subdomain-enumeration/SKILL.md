@@ -136,6 +136,119 @@ Fingerprint signals for prioritization:
 - **Small response size**: minimal app or API → less hardened
 - **Non-standard server**: unusual tech, potentially unpatched
 
+### 3b. Wildcard DNS Detection (avoid false-positive floods)
+
+Before trusting brute-force hits, confirm the zone doesn't wildcard-resolve everything:
+
+```bash
+rand_sub="nonexistent-$(date +%s)-$RANDOM"
+wild_ip=$(dig +short "${rand_sub}.target.com" | head -1)
+if [ -n "$wild_ip" ]; then
+  echo "WILDCARD DNS detected -> $wild_ip — every brute-force guess will 'resolve'; require a distinct HTTP fingerprint, not just DNS resolution, before treating a hit as real"
+fi
+```
+
+### 3c. Permutation / Mutation Enumeration
+
+Passive + brute-force alone miss environment-style names. Generate permutations from
+already-discovered subdomains and known naming conventions, then re-resolve:
+
+```bash
+# Manual permutation (dnsgen/altdns-style) when the dedicated tool isn't available
+while IFS= read -r sub; do
+  base="${sub%%.*}"
+  for pat in dev staging stage test qa uat preprod prod internal admin api api-v1 api-v2 \
+             beta canary sandbox demo old new backup vpn mail portal partner; do
+    echo "${pat}.${sub}"
+    echo "${base}-${pat}.target.com"
+    echo "${pat}-${base}.target.com"
+  done
+done < "$ENGAGEMENT_DIR/scans/subdomains.txt" | sort -u > "$ENGAGEMENT_DIR/scans/subdomains_permuted.txt"
+# Re-run through the Stage 1-3 resolve/live/fingerprint pipeline above
+```
+
+### 3d. Dangling CNAME / Takeover Candidate Flagging
+
+While resolving, flag any subdomain whose CNAME points at a third-party service but the
+service-side resource doesn't exist — this is the entry condition for `subdomain-takeover`:
+
+```bash
+while IFS= read -r sub; do
+  cname=$(dig +short CNAME "$sub" | head -1)
+  [ -n "$cname" ] && echo "$sub -> CNAME $cname"
+done < "$ENGAGEMENT_DIR/scans/subdomains_resolved.txt" | \
+  grep -iE "\.(github\.io|herokuapp\.com|azurewebsites\.net|cloudapp\.net|s3\.amazonaws\.com|s3-website|trafficmanager\.net|cloudfront\.net|fastly\.net|zendesk\.com|shopify\.com|wordpress\.com|readme\.io|surge\.sh|netlify\.app|vercel\.app)\.?$" \
+  > "$ENGAGEMENT_DIR/scans/subdomains_third_party_cname.txt"
+echo "Third-party CNAMEs flagged for takeover check: $(wc -l < $ENGAGEMENT_DIR/scans/subdomains_third_party_cname.txt)"
+```
+
+### 3e. Certificate Transparency Monitoring for New Names
+
+CT logs surface subdomains issued *after* the last passive scan (recently stood-up dev/test
+hosts) and unlisted second-level combinations:
+
+```bash
+curl -s "https://crt.sh/?q=%25.target.com&output=json" | jq -r '.[].name_value' | \
+  tr 'A-Z' 'a-z' | sed 's/\*\.//g' | sort -u > "$ENGAGEMENT_DIR/scans/subdomains_ct.txt"
+comm -23 "$ENGAGEMENT_DIR/scans/subdomains_ct.txt" <(sort -u "$ENGAGEMENT_DIR/scans/subdomains.txt") \
+  > "$ENGAGEMENT_DIR/scans/subdomains_ct_new.txt"   # names in CT but missed by subfinder
+```
+
+### 3f. Additional Passive Sources / DNS Aggregators
+
+subfinder already queries many of these, but querying directly is useful when API keys aren't
+configured or when a source has coverage subfinder's connector lacks:
+
+```bash
+# RapidDNS — free passive DNS aggregator, no key required
+curl -s "https://rapiddns.io/subdomain/target.com?full=1" | grep -oE '[a-zA-Z0-9.-]+\.target\.com' | sort -u
+
+# BufferOver / DNS.BufferOver — passive DNS dataset
+curl -s "https://dns.bufferover.run/dns?q=.target.com" | jq -r '.FDNS_A[]? | split(",")[1]' | sort -u
+
+# crt.sh via PostgreSQL interface (faster / avoids the JSON endpoint's rate limiting)
+curl -s "https://crt.sh/?q=%25.target.com&output=json" -H "Accept: application/json" | jq -r '.[].name_value' | sort -u
+
+# ProjectDiscovery Chaos dataset (requires API key, curated bug-bounty subdomain lists)
+curl -s -H "Authorization: $CHAOS_API_KEY" "https://dns.projectdiscovery.io/dns/target.com/subdomains" | jq -r '.subdomains[]' | sed 's/$/.target.com/'
+
+# DNSDumpster-style web scrape fallback when API access isn't available
+curl -s "https://dnsdumpster.com/" -c cookies.txt -o /dev/null
+csrf=$(grep -oP 'csrfmiddlewaretoken.{0,80}value="\K[^"]+' /dev/null 2>/dev/null)  # requires session token scrape; prefer subfinder/crt.sh when this is brittle
+
+# Merge everything into the master list before Stage 1 resolution
+cat "$ENGAGEMENT_DIR/scans/subdomains.txt" rapiddns.txt bufferover.txt chaos.txt | sort -u > "$ENGAGEMENT_DIR/scans/subdomains_merged.txt"
+```
+
+### 3g. ASN / Reverse-WHOIS Pivoting
+
+Subdomains that don't share the parent domain's naming convention (rebranded products,
+acquisitions, regional TLDs) won't surface from DNS brute-force or CT logs — pivot on the
+org's actual network ownership instead:
+
+```bash
+# Find ASN(s) owning the target's known IP
+whois -h whois.radb.net -- "-i origin $(whois <target-ip> | grep -i 'OriginAS' | awk '{print $2}')" 2>/dev/null
+
+# Enumerate all prefixes announced by that ASN, then reverse-DNS sweep each /24
+curl -s "https://api.bgpview.io/asn/<ASN>/prefixes" | jq -r '.data.ipv4_prefixes[].prefix'
+for ip in $(nmap -sL -n <prefix> | awk '/Nmap scan report/{print $NF}' | tr -d '()'); do
+  dig -x "$ip" +short
+done | sort -u
+
+# Reverse WHOIS — find other domains registered by the same org/registrant email
+curl -s "https://api.whoisxmlapi.com/v1?apiKey=$WHOISXML_API_KEY&searchType=current&mode=purchase&punycode=true&basicSearchTerms.include=<org-registrant-email>" | jq -r '.domainsList[]'
+```
+
+### 3h. Favicon-Hash Cross-Domain Pivot
+
+Reuse the mmh3 favicon hash from `web-recon` section 3b to find sibling subdomains/hosts
+running the identical admin panel or product build under a different name entirely:
+
+```bash
+curl -s "https://api.shodan.io/shodan/host/search?key=$SHODAN_API_KEY&query=http.favicon.hash:<hash>+hostname:target.com" | jq -r '.matches[].hostnames[]'
+```
+
 ### 4. Recursive Enumeration
 
 If new subdomains are found, enumerate their subdomains too:

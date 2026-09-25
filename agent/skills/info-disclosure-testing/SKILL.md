@@ -99,6 +99,52 @@ origin: RedteamOpencode
 - [ ] Response behavior fingerprinting
 - [ ] `/favicon.ico` hash → identify framework/CMS
 
+### 9. Cloud Metadata & Environment Disclosure
+
+- [ ] If a server-side fetch/proxy/webhook feature exists, test whether it (or a confirmed SSRF) can reach cloud metadata — `169.254.169.254` (AWS IMDSv1/v2, GCP, Azure), `100.100.100.200` (Alibaba Cloud); a returned IAM credential/role token is a Critical finding on its own
+- [ ] `/api/config`, `/api/env`, `/config.json`, `/env.js`, `/settings.json` — SPA build-time config accidentally shipping server env vars
+- [ ] Kubernetes-adjacent leaks: `/var/run/secrets/kubernetes.io/serviceaccount/token` exposed via an LFI/path-traversal primitive, or a container `/proc/self/environ` read
+- [ ] CI/CD leftover: `.github/workflows/*.yml`, `.gitlab-ci.yml`, `Jenkinsfile` reachable over HTTP if the web root includes the repo checkout
+- [ ] Docker/orchestration leftovers: `/Dockerfile`, `docker-compose.yml`, `.dockerignore` reachable at web root
+
+### 10. Timing & Behavioral Side Channels
+
+- [ ] Compare response time for existing vs non-existing usernames/resources (username enumeration via timing, distinct from status-code differences — see `user-enumeration`)
+- [ ] Compare response time for correct vs incorrect password prefix on auth endpoints that short-circuit comparison
+- [ ] Note any endpoint whose response time scales with an internal collection size (e.g. `?search=` against a growing dataset) — can fingerprint record counts without direct read access
+- [ ] Content-Length differences on otherwise-identical 200 responses across privilege levels — smaller body for lower privilege can still leak the *existence* of extra fields
+
+### 11. Third-Party & Supply-Chain Disclosure
+
+- [ ] Check `Server-Timing` header for internal service/component names
+- [ ] Check CSP `report-uri`/`report-to` for internal collector hostnames
+- [ ] Check `X-Amz-*`, `X-Goog-*`, `X-MS-*` response headers for cloud account/bucket/resource identifiers
+- [ ] npm/pip/composer lockfiles reachable at web root (`package-lock.json`, `yarn.lock`, `composer.lock`, `Pipfile.lock`) — exact dependency versions for targeted CVE lookup via `osint-recon`
+- [ ] Source-control leftovers beyond `.git`: `.hg/`, `.bzr/`, `_darcs/`, `CVS/`
+
+### 9. Framework-Specific Verbose Error Signatures
+
+- [ ] Django: `DEBUG = True` page shows full traceback, settings, installed apps, SQL query log
+- [ ] Laravel: Ignition/Whoops page shows stack trace, env vars, `.env` values inline
+- [ ] Rails: `ActionController::RoutingError` / `ActiveRecord` trace shows schema, gem versions
+- [ ] Spring Boot: Whitelabel Error Page + `/actuator` combo reveals bean names and package structure
+- [ ] Express/Node: default error handler echoes stack trace with local file paths
+- [ ] ASP.NET: Yellow Screen of Death (YSOD) shows source code snippet around the exception line
+- [ ] Flask: Werkzeug debugger (if `debug=True`) allows interactive console — potential RCE via PIN bypass
+- [ ] PHP: `display_errors=On` leaks full path disclosure (`/var/www/html/...`) in warnings
+- [ ] Next.js/Nuxt: dev-mode overlay leaks source file + component tree
+- [ ] Trigger a type-confusion or malformed-body error (e.g. send array where object expected) to force these pages when normal invalid input is caught gracefully
+
+### 10. Backup / Leftover File Pattern Depth
+
+- [ ] IDE/editor artifacts: `.idea/`, `.vscode/`, `*.sublime-project`, `Thumbs.db`
+- [ ] VCS metadata beyond `.git`: `.hg/`, `.bzr/`, `CVS/`, `_darcs/`
+- [ ] Container/deploy leftovers: `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `k8s.yaml`, `.github/workflows/*.yml`
+- [ ] CI/CD config exposing secrets: `.gitlab-ci.yml`, `.travis.yml`, `Jenkinsfile`, `azure-pipelines.yml`
+- [ ] Dependency manifests leaking internal package names: `composer.lock`, `Gemfile.lock`, `poetry.lock`
+- [ ] Numeric/dated backups: `backup-2024-01-15.zip`, `site_old.tar.gz`, `www2/`
+- [ ] Source-map exposure beyond `.js.map`: check every bundled JS/CSS for a `//# sourceMappingURL=` comment even when the `.map` isn't linked from HTML directly
+
 ## What to Record
 
 - Each disclosure finding with exact location (URL, header, response body)

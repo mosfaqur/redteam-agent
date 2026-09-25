@@ -295,6 +295,41 @@ For ANY protocol or interface not covered above, the method is the same:
 This applies to gRPC, SMTP VRFY/RCPT, LDAP bind, custom TCP protocols, or any
 other interface. The protocol doesn't matter — the differential response does.
 
+### 13. Statistical Timing Enumeration (Noisy Networks)
+
+A single-shot timing comparison is unreliable over the internet or a loaded target. When status/body/size are identical but you suspect timing leakage:
+
+```bash
+# Collect N samples each, compute median (more robust than mean against jitter/outliers)
+for identity in nonexistent_xyz admin; do
+  : > "$TMPDIR_ENUM/timing_${identity}.txt"
+  for i in $(seq 1 15); do
+    run_tool curl -s -X POST "http://target/api/login" \
+      -H "Content-Type: application/json" \
+      -d "{\"username\":\"${identity}\",\"password\":\"wrong\"}" \
+      -o /dev/null -w "%{time_total}\n" >> "$TMPDIR_ENUM/timing_${identity}.txt"
+  done
+  sort -n "$TMPDIR_ENUM/timing_${identity}.txt" | awk '{a[NR]=$1} END{print "median="a[int((NR+1)/2)]}'
+done
+```
+Report timing enumeration only when the median gap is reproducible across repeated runs and exceeds normal jitter (rule of thumb: >20ms median separation, consistent across ≥3 independent runs at different times).
+
+### 14. Autocomplete, Search, and Share-by-Email Enumeration
+
+Features never designed as auth surfaces frequently leak existence:
+- Typeahead/autocomplete on "invite collaborator", "share with", "assign to" fields — returns matching users as you type, confirming existence of partial-match identifiers
+- Public profile/vanity URLs (`/u/<username>`, `/profile/<email-slug>`) returning 200 vs 404
+- "Is this you?" prompts on registration/checkout that fire only for existing accounts
+- Contact-import / "find your friends" features that echo back which uploaded emails matched existing accounts
+
+### 15. Password-Strength/Policy Endpoint Side Channel
+
+Some apps validate password strength via an async call that also silently checks the account (e.g., blocks reuse of the account's current password, or personalizes strength rules with the user's name/email). A different validation response for a known vs unknown account identifier is enumerable even though the endpoint's stated purpose is unrelated to auth.
+
+### 16. Federated/SSO Domain Enumeration
+
+For SSO-gated logins keyed by email domain: submitting an email at a domain with SSO configured redirects to the IdP, while a domain without SSO falls through to password login (or vice versa). This confirms which organizations/tenants exist even before touching individual user enumeration — chain into `oauth-oidc-testing` for the SSO flow itself once a valid tenant is confirmed.
+
 ## What to Record
 
 - **Enumerable interface**: protocol, endpoint/address, parameter

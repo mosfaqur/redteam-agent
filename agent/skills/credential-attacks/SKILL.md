@@ -147,6 +147,26 @@ jq --arg user "$USERNAME" --arg pass "$PASSWORD" --arg service "$SERVICE" '.disc
 
 Move an entry to `validated_credentials` only after a successful login yields usable engagement auth context.
 
+### 12. Credential Stuffing from Prior Breach Corpora
+
+When a leaked-credential corpus is in scope (engagement-supplied dump, or credentials surfaced by `osint-analyst`), treat it as a targeted list rather than a generic wordlist:
+- Match corpus emails/usernames against confirmed in-scope accounts before attempting any login — do not stuff against unconfirmed identities
+- Test only the exact leaked password first, not permutations, and count each pairing against the same online-attempt budget as Section 2
+- If a match succeeds, immediately check for password reuse across other in-scope services (Section 9/10) before consuming further budget on the stuffing list
+
+### 13. API Key and Service-Credential Discovery
+
+Beyond human login credentials, test for exposed non-interactive credentials:
+- [ ] Grep collected source/config/backup artifacts for API key patterns (`AKIA[0-9A-Z]{16}`, `sk_live_`, `ghp_`, `xox[baprs]-`, generic `api[_-]?key`/`secret`/`token` assignments) — coordinate with `sensitive-data-detection` for the full pattern set
+- [ ] Test discovered API keys against their likely service before assuming validity — an unauthenticated `GET`/introspection call is enough to confirm without spending write budget
+- [ ] Check key scope/permission boundary once confirmed valid: does it grant broader access than the feature it was found supporting (e.g., a client-side analytics key that also permits admin API calls)?
+- [ ] Service-account and CI/CD credentials (deploy keys, webhook secrets) found in repo history or pipeline config: validate narrowly and prioritize handoff to `ci-cd-security` / `lateral-movement` if they grant infrastructure access beyond the web app
+
+### 14. Password-Manager and Autofill-Adjacent Leakage
+
+- [ ] Check whether login forms are missing `autocomplete="off"`/proper `name` semantics in a way that causes browser-generated credentials to be exposed in autofill debugging or exported form data (low severity, note only if concretely observable in engagement artifacts)
+- [ ] Check "remember this device"/"save password" flows for credentials transmitted or stored in plaintext client-side storage (chain into `sensitive-data-detection`)
+
 ### Lab objective recall closure
 
 When the active profile (`lab-profile.json`) lists schema/credential objectives, generic weak-credential proof is not enough. For a credential objective, requeue one exact native extraction workflow (credential-bearing config/backup/database dump, hash file plus account context, or an evidenced reusable-secret path), save the response artifact, and immediately run `python3 ./scripts/lab_objective.py snapshot "$DIR"` (or fetch the objective source). For a schema objective, requeue one exact native injection workflow with a `sqlite_master`/`information_schema` extraction payload, save the response artifact, and solved-check that branch separately. Do not close either branch as a generic credential finding until the handoff records `objective=<name> status=solved|requeued evidence=<path> next=<exact action>`. Consult the profile's `recall_branches` for the exact routes and payload hints.

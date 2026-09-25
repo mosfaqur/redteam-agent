@@ -57,6 +57,32 @@ run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "http://target/l
 run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "http://target/oauth/callback?redirect_uri=https://evil.com"
 ```
 
+### 4. Advanced Parser-Confusion Bypasses
+
+```bash
+TARGET="http://target/redirect?url="
+# Malformed scheme (some parsers treat missing "//" as relative, browsers don't)
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}https:evil.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}/\\evil.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}\\\\evil.com"
+# Whitespace/control-char prefix confuses "starts with /" allowlist checks
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}%09https://evil.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}%0d%0ahttps://evil.com"
+# Path-based bypass when only domain string is checked, not full URL
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}https://trusted.com.evil.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}https://evil.com/trusted.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}https://evil.com?trusted.com"
+run_tool curl -s -o /dev/null -w "%{http_code} %{redirect_url}" "${TARGET}https://evil.com#trusted.com"
+# JS-sink redirects (location.href / window.open in reflected params, not server 30x)
+# check page source for: location.href=, location.replace(, window.open(, meta refresh with user-controlled url
+```
+
+### 5. Open Redirect → SSRF / Token Leak Chaining
+
+- [ ] If the redirect target reaches an internal service that trusts the caller (e.g. an SSRF-vulnerable fetcher that follows redirects), chain into `ssrf-testing`
+- [ ] If the redirect happens post-OAuth-authorization with the auth code/token in the fragment or query, a redirect to attacker domain leaks the token directly — treat as auth-bypass severity, see `oauth-oidc-testing`
+- [ ] Check whether `Referer`/`Referrer-Policy` leaks the pre-redirect URL (and any embedded token) to the attacker-controlled landing page
+
 ## What to Record
 
 - Redirect parameter name and endpoint

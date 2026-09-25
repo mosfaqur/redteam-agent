@@ -109,6 +109,25 @@ Check code length, entropy, expiry, attempt limits, delivery identifiers, user e
 
 Treat full access to a protected account or privileged action without completing MFA as **CRITICAL**. Lower severity only when a control weakness exposes partial metadata or requires the legitimate user's active second factor.
 
+### 11. Response-Manipulation and Client-Trust Bypass
+
+Inspect the MFA-verify response for any field the client might treat as authoritative rather than server-enforced state:
+- Boolean flip: `{"verified":false}` → `{"verified":true}`, `{"mfa_required":true}` → `false`, replayed with a tampered response body if the check is client-side-JS-driven
+- Status-code trust: does the client only check HTTP 200 rather than parsing the body, so any 200 response (even an error payload) is treated as success?
+- Missing server-side re-check: after client-side "verified" state, does the *next* privileged request re-validate MFA completion server-side, or trust a client-supplied flag/header (`X-MFA-Verified: true`)?
+
+### 12. Enrollment and Downgrade Flow Abuse
+
+- [ ] Test whether MFA can be disabled or swapped to a weaker factor (TOTP → SMS) without re-authenticating with the *current* factor first
+- [ ] Test concurrent enrollment: start enrolling a new authenticator on an attacker session while the victim's existing session is still active — check if enrollment silently replaces the victim's factor without notifying/requiring their confirmation
+- [ ] QR code / setup secret exposure: check if the TOTP secret shown during enrollment remains fetchable again later via the same setup endpoint (allowing a returning attacker with a stolen pre-MFA session to re-derive it)
+
+### 13. Cross-Factor and Cross-Flow Confusion
+
+- [ ] Submit a valid OTP generated for a *different* pending session/account against the target session (`session=$OTHER_MFA_SESSION`) to check the OTP is bound to the specific challenge, not just valid-in-general
+- [ ] Test whether a WebAuthn/passkey challenge response, or a push-notification approval, can be replayed against a *new* login attempt (the assertion signs a challenge, but is the challenge itself bound to the specific session that requested it?)
+- [ ] Push-notification MFA fatigue: check whether repeated push prompts are rate-limited server-side, and whether the approval endpoint validates the approving device matches the enrolled one
+
 ## References
 
 `references/vuln-checklists/A01-broken-access-control.md`, `references/vuln-checklists/A07-authentication-failures.md`, `references/vuln-checklists/A10-exceptional-conditions.md`, `references/api-security/API02-broken-authentication.md`, `references/api-security/API05-broken-function-authz.md`, `references/tools/recon/curl.md`.

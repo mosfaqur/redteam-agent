@@ -76,7 +76,46 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Content-Type: applicatio
 
 A parser cap or size rejection is correct hardening; an unbounded expansion is the finding.
 
-### 5. Classify and Hand Off
+### 5. Test GraphQL Query-Cost Amplification (bounded)
+
+If the target exposes GraphQL, send one deeply nested self-referential query and one query using field aliasing to multiply a single expensive resolver, each once. This is a distinct amplification class from REST-side parser bombs — the cost lives in resolver fan-out, not payload size.
+
+```bash
+printf '%s\n' '{"query":"query{a:__typename b:__typename c:__typename d:__typename e:__typename f:__typename g:__typename h:__typename i:__typename j:__typename}"}' > "$DIR/scans/graphql_alias_probe.json"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Content-Type: application/json' -w 'graphql_alias %{http_code} %{time_total}\n' \
+  --data-binary @"$DIR/scans/graphql_alias_probe.json" https://HOST/graphql -o "$DIR/scans/graphql_alias.body"
+```
+
+A server that accepts unlimited query depth/complexity without a cost-analysis limit (`graphql-depth-limit`, `query complexity` errors) and shows a measurable latency increase under the aliased probe is the finding; a `Query is too complex`/depth-limit rejection is correct behavior. Cross-reference `graphql-testing` for the introspection and injection angles.
+
+### 6. Test Compression and Hash-Flooding Vectors (bounded)
+
+Send one compressed payload with an extreme compression ratio (a small gzip/brotli body that decompresses to a large size) if the endpoint auto-decompresses request bodies, and — for form/multipart parsers — one request with many distinct field names to probe for unbounded hash-table growth from an unbounded parameter count.
+
+```bash
+python3 -c "open('$DIR/scans/ratio_bomb.txt','wb').write(b'0'*10_000_000)" && gzip -9 -c "$DIR/scans/ratio_bomb.txt" > "$DIR/scans/ratio_bomb.gz"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Content-Encoding: gzip' -H 'Content-Type: text/plain' \
+  --data-binary @"$DIR/scans/ratio_bomb.gz" https://HOST/upload -D "$DIR/scans/ratio_bomb.headers" -o "$DIR/scans/ratio_bomb.body"
+```
+
+A server that decompresses without a pre-check on declared/actual size ratio is the finding. Never chain multiple compression bombs or repeat the request; one payload, one observation.
+
+### 7. Test Additional Amplification Classes (bounded)
+
+Probe algorithmic-complexity and structural-depth vectors distinct from the parser-size and query-cost classes above, each once against a matching baseline:
+
+```bash
+python3 -c "print('{' * 5000 + '\"a\":1' + '}' * 5000)" > "$DIR/scans/json_depth_bomb.json"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -H 'Content-Type: application/json' -w 'json_depth %{http_code} %{time_total}\n' \
+  --data-binary @"$DIR/scans/json_depth_bomb.json" https://HOST/parse -o "$DIR/scans/json_depth_bomb.body"
+python3 -c "print('\n'.join(['\"' + 'a'*200 + '\"'] * 50000))" > "$DIR/scans/csv_field_flood.csv"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -F "file=@$DIR/scans/csv_field_flood.csv" \
+  https://HOST/import -w 'csv_flood %{http_code} %{time_total}\n' -o "$DIR/scans/csv_field_flood.body"
+```
+
+A deeply nested JSON/XML document can overflow a recursive-descent parser's call stack (crash) or degrade quadratically in a naive tree-builder, independent of total payload size — a small, deeply nested document is the differential to watch for, not a large one. A CSV/text importer that builds an in-memory hash table or index keyed by field content can be pushed toward algorithmic worst-case (hash-flooding class) with many distinct, colliding keys rather than sheer volume. Also check for Unicode-normalization amplification: a small NFKC/NFKD-expanding input (certain combining-character sequences expand significantly under normalization) sent to any endpoint that normalizes user input before further processing (search, username validation) — record only a reproducible latency/size differential against an ASCII-only control of equal input length.
+
+### 8. Classify and Hand Off
 
 Separate "guard held" (correct) from "unbounded degradation" (weakness), and record the exact payload and the differential. Confirm-only: never run a sustained, repeated, or production-impacting load. A timeout or latency is an observation until the same payload reproduces it against a control.
 

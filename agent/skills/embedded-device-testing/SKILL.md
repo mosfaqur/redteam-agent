@@ -102,7 +102,20 @@ run_tool curl -sS -k --connect-timeout 5 --max-time 20 --data-urlencode 'target=
 
 Do not report a payload solely because the response differs; preserve the exact request and response pair and verify the differential is server-side.
 
-### 7. Review Keys, Debug Paths, and Metadata
+### 7. Check Discovery Protocols and Firmware Update Channel
+
+Probe UPnP/SSDP and mDNS discovery responses for device model/firmware-version disclosure, and check whether the firmware-update mechanism uses an unauthenticated or unencrypted channel. Read-only checks only — never trigger an actual update.
+
+```bash
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 https://HOST/description.xml -o "$DIR/scans/upnp_description.xml"
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 https://HOST/api/firmware/check -o "$DIR/scans/firmware_check.json"
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 https://HOST/cgi-bin/firmwareupgrade -o "$DIR/scans/firmware_upgrade_page.html"
+grep -Eio 'http://[^"'"'"' ]+\.(bin|img|fw)|sig|checksum|signature' "$DIR/scans/firmware_check.json" "$DIR/scans/firmware_upgrade_page.html" > "$DIR/scans/firmware_channel_clues.txt" 2>/dev/null
+```
+
+Record whether the update URL is `http://` (plaintext) rather than `https://`, and whether the response or bundle references a signature/checksum verification step at all — an update mechanism with no signing reference is a supply-chain finding even without a captured firmware image. Also check for a hardcoded SSH host key, TLS certificate, or API credential that is identical across multiple in-scope devices of the same model (fleet-wide key reuse) by comparing the certificate/key fingerprint from step 1 against any second device already in scope; do not scan devices outside scope to build this comparison.
+
+### 8. Review Keys, Debug Paths, and Metadata
 
 Check hardcoded API-key clues in local HTML, JavaScript, and headers, then make one bounded request for each concrete debug, status, version, and configuration-download route. Do not probe guessed paths after the budget is reached. For token predictability, repeat one successful login twice with the same discovered mechanism, compare token equality and lengths, and never publish the token. A repeated identical token or obvious counter is evidence; a random-looking token is not a finding.
 
@@ -119,7 +132,31 @@ jq -r '.. | objects | to_entries[] | select(.key | test("session|token|sid"; "i"
 
 The comparison records only equality and token lengths; never copy the underlying token into a finding.
 
-### 8. Apply Safe-Test Rules
+### 9. Hardware Debug Interfaces and Firmware Extraction (physical access only)
+
+Applies only when the device is physically in scope and provided for hands-on testing. Identify UART/JTAG/SWD headers on the board before applying any signal, and treat firmware images obtained from the vendor download page or a bus/flash read identically to a network artifact — analyze, never flash back a modified image without explicit authorization.
+
+```bash
+# Identify populated headers first; do not probe unlabeled pins with a live multimeter/logic analyzer on power rails.
+# UART: locate GND/TX/RX/VCC via continuity + logic analyzer capture at common rates (115200 8N1 first, then 9600/57600).
+run_tool python3 -c "print('uart: attach logic analyzer, capture boot log, look for a root/login shell dropped to console')"
+# JTAG/SWD: enumerate the chain before attempting a halt/read.
+# openocd -f interface/<adapter>.cfg -f target/<soc>.cfg   # identify only; do not erase/write flash
+```
+
+Record whether UART drops directly to a root shell on boot (no authentication on the serial console), whether a U-Boot prompt is reachable by interrupting boot (`Hit any key to stop autoboot`) and permits `printenv`/`setenv bootargs`/arbitrary `bootcmd` changes, and whether JTAG/SWD is left enabled in production (undebounced, unlocked debug port) versus fused off. An unlocked JTAG with a readable flash controller is a full firmware-extraction primitive on its own — record the read capability; do not perform a full destructive dump outside an explicitly authorized hardware-test scope.
+
+For a firmware image already provided or extracted read-only, run static analysis only:
+
+```bash
+run_tool python3 -c "import subprocess; print('binwalk -e firmware.bin  # extract filesystem, look for embedded keys/certs')"
+grep -RIiE 'BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY|passwd|shadow' extracted_fs/ 2>/dev/null > "$DIR/scans/firmware_secrets_grep.txt"
+grep -RIoE '\b[a-zA-Z0-9._%+-]+:\$[0-9a-z]\$[^:]+' extracted_fs/etc/shadow 2>/dev/null > "$DIR/scans/firmware_shadow_hashes.txt"
+```
+
+Extract only into the engagement scratch directory, and flag a hardcoded private key, a shared root password hash identical across a vendor's product line (confirm against a second in-scope firmware image only, never an out-of-scope download), and a bootloader/recovery mode that skips signature verification (`secure boot` disabled or a debug build left in a production image). Firmware pulled directly from a live device's update channel that lacks the signing reference already flagged in step 7 corroborates that finding — cross-reference rather than re-report.
+
+### 10. Apply Safe-Test Rules
 
 Never factory-reset, flash or upgrade firmware, submit destructive configuration writes, alter routing or access controls, launch a denial-of-service test, run an unbounded loop, brute force, or spray a wordlist. Do not download bulk secrets. A finding requires one reproducible request/response pair and a concrete impact statement; otherwise record the endpoint as not confirmed and stop.
 

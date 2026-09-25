@@ -104,6 +104,15 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 \
 
 Use an inert marker or harmless redirect target for triage. Do not count a dynamic response merely because the path ends in a static suffix; require the same object to be served from cache on a second request.
 
+### 6b. Additional Cache-Deception & Key-Confusion Patterns
+
+- [ ] Path-parameter/fat-GET confusion: `/account;foo=.css`, `/account/..%2f..%2fstatic.css`, `/account%2f..%2fstatic.css` — some routers strip the fake segment before serving but the cache keys on the raw path
+- [ ] Extension via fragment-before-query framing on frameworks that map trailing dotted segments to a static handler regardless of what precedes them: `/api/user/profile.js`, `/api/user/profile%2e%2e/x.css`
+- [ ] Internal cache poisoning via unkeyed `Accept`/`Accept-Encoding`/`Accept-Language` — a translated or content-negotiated error page cached under the canonical key can leak into other users' locales
+- [ ] Fat-GET body poisoning: some caches key GET requests but a downstream framework still parses a request body if present — sending a GET with a body that alters application behavior (auth bypass headers replayed as body params) can poison the cached GET response
+- [ ] Cache-key normalization bypass: trailing slash, double slash, case changes in path segments (`/Account` vs `/account`) that the origin treats as equivalent but the cache treats as distinct — or vice versa, both mapping to the same cache entry when they shouldn't
+- [ ] Denial-of-service via cache poisoning: an unkeyed header that triggers a 400/404/500 origin response can get that error page cached for all users of a popular URL — no reflected payload needed, just an oversized/malformed header value that the cache still stores
+
 ### 7. Read CDN Differences
 Treat vendor headers as hints, not universal proof: Cloudflare commonly exposes `CF-Cache-Status` and `Age`; Akamai commonly exposes `X-Cache` and `X-Akamai-*`; Fastly commonly exposes `X-Cache`, `X-Cache-Hits`, and `Fastly-Debug`; CloudFront commonly exposes `X-Cache`, `Age`, and `x-amz-cf-id`. Rules, Workers, forwarding-header trust, normalization, and private bypasses can change behavior.
 

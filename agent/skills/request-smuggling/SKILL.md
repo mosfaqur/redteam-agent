@@ -105,6 +105,23 @@ origin: RedteamOpencode
 - [ ] Request splitting via header injection in HTTP/2 pseudo-headers
 - [ ] CRLF injection in HTTP/2 header values
 
+### 8b. CL.0 and 0.CL Variants
+
+- [ ] **CL.0**: frontend forwards `Content-Length` but the backend (often an origin that treats certain endpoints/status paths as bodyless, e.g. after a redirect handler) ignores it and treats the connection as request-terminated at 0 bytes — the leftover body bytes become the start of the next smuggled request. Confirm by sending a body after a normally-bodyless-response endpoint and checking if it desyncs the next request.
+- [ ] **0.CL / TE.0**: mirror case where the frontend ignores a header the backend honors. Test each direction independently — smuggling is asymmetric per proxy pair.
+
+### 8c. Client-Side Desync (CSD) — No Intermediary Required
+
+When there is no shared frontend/backend pair to desync (single server, or CDN normalizes CL/TE cleanly), test whether the *browser itself* can be tricked into desyncing its own connection reuse:
+- [ ] Find an endpoint that responds to a POST with a redirect or a response the browser treats as if the body wasn't fully consumed (mismatched declared vs. actual body length from the server's own bug)
+- [ ] Victim's subsequent same-origin request over the reused TCP/TLS connection gets prefixed with attacker-chosen bytes — leads to client-side request smuggling / cross-user cache poisoning without needing a second hop
+- [ ] Primarily relevant when `exploit-developer` is chaining this into a same-origin XSS or session-fixation PoC; note it as a candidate rather than fully proving it in triage
+
+### 8d. Expect-Based and Pipelining Desync
+
+- [ ] `Expect: 100-continue` handling differential: some backends buffer and wait for the body before validating headers, others validate first — send a request with `Expect: 100-continue` plus a smuggled body prefix and observe whether the 100-response is followed inconsistently between frontend/backend
+- [ ] HTTP/1.0 pipelining assumptions: if a backend silently reuses a connection expecting HTTP/1.1 semantics while receiving HTTP/1.0-declared requests, connection-reuse mismatches can desync without any CL/TE ambiguity at all
+
 ### 9. Validation
 
 - [ ] Confirm desync with timing differential (10+ second difference)
