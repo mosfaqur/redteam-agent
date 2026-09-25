@@ -59,7 +59,7 @@ TOOLS=(
     "enum4linux|enum4linux||"
     "socat|socat||"
     "sslscan|sslscan||"
-    "testssl.sh|testssl.sh||"
+    "testssl|testssl.sh||"
     "impacket-psexec|python3-impacket||"
     "docker|docker.io||"
     "kubectl|kubernetes-client||"
