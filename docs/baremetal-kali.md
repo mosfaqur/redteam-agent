@@ -36,7 +36,7 @@ The installer:
 1. Deploys the complete agent runtime (prompts, skills, references, scripts, lab profiles).
 2. Generates a local configuration file (`.env`) with `REDTEAM_RUNTIME_MODE=local`.
 3. Auto-detects local binary paths for `katana`, `chromium`, and `chromedriver`.
-4. Executes [`agent/scripts/check_local_tools.sh`](file:///root/red-team/agent/scripts/check_local_tools.sh) to audit host package dependencies.
+4. Executes [`agent/scripts/check_local_tools.sh`](../agent/scripts/check_local_tools.sh) to audit host package dependencies.
 
 ---
 
@@ -98,7 +98,7 @@ cd ~/redteam-agent
 
 ## 5. Runtime Architecture & Execution Mechanics
 
-Environment switching is managed by [`agent/scripts/lib/container.sh`](file:///root/red-team/agent/scripts/lib/container.sh):
+Environment switching is managed by [`agent/scripts/lib/container.sh`](../agent/scripts/lib/container.sh):
 
 ```
                                   REDTEAM_RUNTIME_MODE
@@ -118,7 +118,7 @@ Environment switching is managed by [`agent/scripts/lib/container.sh`](file:///r
 3. Default distribution fallback path (e.g., `/usr/bin/<tool>`).
 
 ### Metasploit RPC Integration
-In native mode, [`agent/scripts/check_metasploit_runtime.sh`](file:///root/red-team/agent/scripts/check_metasploit_runtime.sh) starts a background `msfrpcd` service on the host:
+In native mode, [`agent/scripts/check_metasploit_runtime.sh`](../agent/scripts/check_metasploit_runtime.sh) starts a background `msfrpcd` service on the host:
 
 ```bash
 msfrpcd -P msf -U msf -a 127.0.0.1 -p 55553 -S
@@ -156,7 +156,7 @@ All commands, phases, case stages, lab profiles, and report generation operate i
 | `run_tool: command not found` | The requested pentest utility is absent from host `$PATH`. | Run `./scripts/check_local_tools.sh --install` to install missing tools. |
 | `Katana cannot find Chrome` | Headless Chrome binary not resolved. | Add `KATANA_CHROME_BIN=/usr/bin/chromium` to your `.env` file. |
 | `browser_flow.py fails` | Selenium driver missing or mismatched. | Install host driver: `sudo apt-get install chromium-driver` and verify with `which chromedriver`. |
-| `Metasploit MCP error -32000: Connection closed` | Python MCP venv has `mcp>=2.0` installed, incompatible with the vendored server v1 API. | Pin MCP package: `~/.opencode/vendor/metasploitmcp-venv/bin/pip install "mcp<2"`, then restart your CLI. |
+| `Metasploit MCP error -32000: Connection closed` | Python MCP venv has `mcp>=2.0` installed, incompatible with the vendored server v1 API. | Pin MCP package: `~/redteam-agent/.opencode/vendor/metasploitmcp-venv/bin/pip install "mcp<2"`, then restart your CLI. |
 | `msfrpcd port conflict` | Port 55553 is bound by another service. | Kill conflicting processes: `fuser -k 55553/tcp` or configure `MSF_PORT` in `.env`. |
 | `Permission denied (Nmap raw socket)` | UDP or SYN scan requires root privileges. | Either run OpenCode with appropriate network capabilities (`setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap`) or run under `sudo`. |
 

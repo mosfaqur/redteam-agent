@@ -226,15 +226,15 @@ If a session is interrupted, network connection drops, or the CLI restarts, resu
 
 ### The 9 Specialized Agents
 
-1. **[`operator`](file:///root/red-team/agent/.opencode/prompts/agents/operator.txt)**: Orchestrates the engagement lifecycle. Assesses state, reviews `scope.json` and `log.md`, dispatches tasks, records findings, and validates completion gates.
-2. **[`recon-specialist`](file:///root/red-team/agent/.opencode/prompts/agents/recon-specialist.txt)**: Performs passive and active recon (DNS, WHOIS, Wappalyzer, Nikto, Nmap, directory discovery). Re-dispatches automatically when new authentication credentials surface.
-3. **[`network-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/network-analyst.txt)**: Specializes in non-HTTP TCP/UDP services (SMB, RPC, Active Directory, Kerberos, database listeners, SSH, RDP, DNS, SNMP, NFS).
-4. **[`source-analyzer`](file:///root/red-team/agent/.opencode/prompts/agents/source-analyzer.txt)**: Performs static analysis of client-side JavaScript, HTML, source maps, and API specifications to unearth hidden routes, parameters, and tokens.
-5. **[`vulnerability-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/vulnerability-analyst.txt)**: Rapid, bounded triage agent executing 1–2 precise verification probes per vulnerability family against web endpoints.
-6. **[`exploit-developer`](file:///root/red-team/agent/.opencode/prompts/agents/exploit-developer.txt)**: Takes confirmed primitives (`stage=vuln_confirmed`), constructs full exploit chains, verifies operational impact, and integrates with Metasploit MCP.
-7. **[`fuzzer`](file:///root/red-team/agent/.opencode/prompts/agents/fuzzer.txt)**: Executes high-volume statistical fuzzing (>500 payloads) using deep SecLists dictionaries when escalated by the vulnerability analyst.
-8. **[`osint-analyst`](file:///root/red-team/agent/.opencode/prompts/agents/osint-analyst.txt)**: Monitors accumulated intelligence in `intel.md` via an idempotent watcher script and queries public CVEs, breach datasets, and DNS history.
-9. **[`report-writer`](file:///root/red-team/agent/.opencode/prompts/agents/report-writer.txt)**: Compiles structured markdown reports detailing executive risk summaries, technical vulnerability breakdowns, reproduction proofs, and remediation advisories.
+1. **[`operator`](agent/.opencode/prompts/agents/operator.txt)**: Orchestrates the engagement lifecycle. Assesses state, reviews `scope.json` and `log.md`, dispatches tasks, records findings, and validates completion gates.
+2. **[`recon-specialist`](agent/.opencode/prompts/agents/recon-specialist.txt)**: Performs passive and active recon (DNS, WHOIS, Wappalyzer, Nikto, Nmap, directory discovery). Re-dispatches automatically when new authentication credentials surface.
+3. **[`network-analyst`](agent/.opencode/prompts/agents/network-analyst.txt)**: Specializes in non-HTTP TCP/UDP services (SMB, RPC, Active Directory, Kerberos, database listeners, SSH, RDP, DNS, SNMP, NFS).
+4. **[`source-analyzer`](agent/.opencode/prompts/agents/source-analyzer.txt)**: Performs static analysis of client-side JavaScript, HTML, source maps, and API specifications to unearth hidden routes, parameters, and tokens.
+5. **[`vulnerability-analyst`](agent/.opencode/prompts/agents/vulnerability-analyst.txt)**: Rapid, bounded triage agent executing 1–2 precise verification probes per vulnerability family against web endpoints.
+6. **[`exploit-developer`](agent/.opencode/prompts/agents/exploit-developer.txt)**: Takes confirmed primitives (`stage=vuln_confirmed`), constructs full exploit chains, verifies operational impact, and integrates with Metasploit MCP.
+7. **[`fuzzer`](agent/.opencode/prompts/agents/fuzzer.txt)**: Executes high-volume statistical fuzzing (>500 payloads) using deep SecLists dictionaries when escalated by the vulnerability analyst.
+8. **[`osint-analyst`](agent/.opencode/prompts/agents/osint-analyst.txt)**: Monitors accumulated intelligence in `intel.md` via an idempotent watcher script and queries public CVEs, breach datasets, and DNS history.
+9. **[`report-writer`](agent/.opencode/prompts/agents/report-writer.txt)**: Compiles structured markdown reports detailing executive risk summaries, technical vulnerability breakdowns, reproduction proofs, and remediation advisories.
 
 ---
 
@@ -264,14 +264,14 @@ Producers                               SQLite Queue (`cases.db`)               
 
 ## Attack Methodology Skills & References
 
-### 38 Offensive Skills ([`agent/skills/`](file:///root/red-team/agent/skills/))
+### 38 Offensive Skills ([`agent/skills/`](agent/skills/))
 * **Injection**: SQL Injection, Command Injection, SSTI, XXE, GraphQL Injection.
 * **Authentication & Identity**: Auth Bypass, JWT Tampering, User Enumeration, IDOR, Session Misconfiguration.
 * **Client-Side & Web**: Stored/Reflected/DOM XSS, CSRF, CORS Misconfiguration, Open Redirect, WebSockets.
 * **Architecture & Transport**: SSRF, HTTP Request Smuggling, Deserialization, Race Conditions, Business Logic Testing, File Inclusion (LFI/RFI), File Upload Abuse.
 * **Infrastructure & Services**: Active Directory & Kerberos (`ldap-kerberos`), SMB/RPC (`smb-netbios`), Database Services (`database-services`), Remote Access (`remote-access-services`), Mail/DNS (`mail-dns-services`), SNMP/FTP/NFS (`snmp-ftp-nfs`).
 
-### 79 Security References ([`agent/references/`](file:///root/red-team/agent/references/))
+### 79 Security References ([`agent/references/`](agent/references/))
 * **OWASP Top 10 (2025 Edition)** & **OWASP API Security Top 10 (2023)**.
 * **Active Directory Attack Guides**: Kerberoasting, AS-REP roasting, ADCS ESC1-ESC8 abuse, BloodHound hunting.
 * **Offensive Tradecraft & Tooling**: In-depth usage guides for `sqlmap`, `hydra`, `nmap`, `ffuf`, `gobuster`, `hashcat`, and `nuclei`.
@@ -280,10 +280,10 @@ Producers                               SQLite Queue (`cases.db`)               
 
 ## Lab Profiles & Objective Verification
 
-RedTeam Agent decouples lab-specific flags and knowledge from generic prompts via declarative JSON profiles in [`agent/labs/`](file:///root/red-team/agent/labs/):
+RedTeam Agent decouples lab-specific flags and knowledge from generic prompts via declarative JSON profiles in [`agent/labs/`](agent/labs/):
 
 * **Supported Profiles**: `juice-shop`, `dvwa`, `webgoat`, `bwapp`, `portswigger`, `metasploitable`, `hackthebox`, `vulnhub`, `tryhackme`, `generic-web`, `generic-network`, `generic-ctf`.
-* **Objective Tracking**: [`agent/scripts/lab_objective.py`](file:///root/red-team/agent/scripts/lab_objective.py) automatically fingerprints the lab, extracts remote challenge scoreboards or local flag targets, tracks progress, and halts completion until all declared objectives are solved.
+* **Objective Tracking**: [`agent/scripts/lab_objective.py`](agent/scripts/lab_objective.py) automatically fingerprints the lab, extracts remote challenge scoreboards or local flag targets, tracks progress, and halts completion until all declared objectives are solved.
 
 ---
 

@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 7 dedicated skills located in [`agent/skills/`](file:///root/red-team/agent/skills/):
+The `network-analyst` subagent operates according to 7 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.

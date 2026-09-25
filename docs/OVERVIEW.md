@@ -227,7 +227,7 @@ Rather than imposing artificial phase walls, cases advance individually through 
 
 ## 6. Lab Profiles & The Objective Closure Gate
 
-To support CTF challenges and intentional vulnerability benchmarks without polluting generic agent prompts with target-specific spoilers, RedTeam Agent uses declarative lab profiles located in [`agent/labs/`](file:///root/red-team/agent/labs/):
+To support CTF challenges and intentional vulnerability benchmarks without polluting generic agent prompts with target-specific spoilers, RedTeam Agent uses declarative lab profiles located in [`agent/labs/`](../agent/labs/):
 
 ### Declarative Schema
 ```jsonc
@@ -262,13 +262,13 @@ To support CTF challenges and intentional vulnerability benchmarks without pollu
 ### Objective Lifecycle
 1. **Detection**: Upon `/engage`, `lab_objective.py detect` evaluates hostnames, active ports, and HTTP path probes to select the highest-priority matching profile.
 2. **Snapshot Tracking**: During testing, `lab_objective.py snapshot` queries local flag files or remote scoreboard APIs to identify solved and unsolved objectives.
-3. **Closure Guard**: Before the engagement can transition to `report` or `complete`, [`agent/scripts/finalize_engagement.sh`](file:///root/red-team/agent/scripts/finalize_engagement.sh) executes `lab_objective.py guard`. If declared objectives remain unaddressed, the guard **fails closed**, prompting the operator to investigate un-triggered recall branches.
+3. **Closure Guard**: Before the engagement can transition to `report` or `complete`, [`agent/scripts/finalize_engagement.sh`](../agent/scripts/finalize_engagement.sh) executes `lab_objective.py guard`. If declared objectives remain unaddressed, the guard **fails closed**, prompting the operator to investigate un-triggered recall branches.
 
 ---
 
 ## 7. Runtimes: Docker vs Bare-Metal Kali
 
-The environment abstraction layer in [`agent/scripts/lib/container.sh`](file:///root/red-team/agent/scripts/lib/container.sh) switches dynamically based on `REDTEAM_RUNTIME_MODE`:
+The environment abstraction layer in [`agent/scripts/lib/container.sh`](../agent/scripts/lib/container.sh) switches dynamically based on `REDTEAM_RUNTIME_MODE`:
 
 | Operation | `docker` Mode (Default off-Kali) | `local` Mode (Bare-Metal Kali) |
 |---|---|---|
