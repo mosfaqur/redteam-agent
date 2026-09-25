@@ -187,6 +187,91 @@ recall_finalize_guard() {
     exit 2
 }
 
+report_freshness_guard() {
+    [[ "${REDTEAM_SKIP_REPORT_FRESHNESS_GUARD:-0}" == "1" ]] && return 0
+
+    local findings_file="$ENG_DIR/findings.md"
+    local source_count=0
+    local report_epoch findings_epoch
+    local reasons=()
+    local marker source_reported
+
+    if [[ -f "$findings_file" ]]; then
+        source_count="$(rg -c '^## \[FINDING-[A-Z]{2}-[0-9]{3}\]' "$findings_file" 2>/dev/null || printf '0')"
+        source_count="${source_count:-0}"
+    fi
+
+    if [[ ! -f "$REPORT_FILE" ]]; then
+        reasons+=("report.md is missing; dispatch report-writer before finalizing")
+    else
+        if rg -q 'Engagement Report \(PARTIAL' "$REPORT_FILE" 2>/dev/null; then
+            reasons+=("report.md is still the compose_partial_report.sh partial stub; dispatch report-writer before finalizing")
+        fi
+        if [[ -f "$findings_file" ]]; then
+            report_epoch="$(stat -c %Y "$REPORT_FILE" 2>/dev/null || printf '0')"
+            findings_epoch="$(stat -c %Y "$findings_file" 2>/dev/null || printf '0')"
+            if (( report_epoch + 2 < findings_epoch )); then
+                reasons+=("report.md is older than findings.md (stale report): report=${report_epoch} findings=${findings_epoch}")
+            fi
+        fi
+        marker="$(rg -o 'findings_reconciliation:[^*]*' "$REPORT_FILE" 2>/dev/null | head -1 || true)"
+        if [[ -z "$marker" ]]; then
+            reasons+=("report.md has no <!-- findings_reconciliation: source_count=N reported_count=N --> marker")
+        else
+            source_reported="$(printf '%s' "$marker" | sed -n 's/.*source_count=\([0-9][0-9]*\).*/\1/p')"
+            local reported_count
+            reported_count="$(printf '%s' "$marker" | sed -n 's/.*reported_count=\([0-9][0-9]*\).*/\1/p')"
+            if [[ -z "$source_reported" || -z "$reported_count" ]]; then
+                reasons+=("report.md findings_reconciliation marker is malformed: ${marker}")
+            elif [[ "$source_reported" != "$source_count" ]]; then
+                reasons+=("report.md reconciliation is stale: report says source_count=${source_reported}, findings.md has ${source_count}")
+            elif [[ "$reported_count" != "$source_count" ]]; then
+                reasons+=("report.md accounted for ${reported_count} of ${source_count} findings")
+            fi
+        fi
+    fi
+
+    if ((${#reasons[@]} == 0)); then
+        return 0
+    fi
+
+    local reason_text
+    reason_text="$(printf '%s; ' "${reasons[@]}")"
+    reason_text="${reason_text%; }"
+    if [[ -x "$SCRIPT_DIR/append_log_entry.sh" ]]; then
+        "$SCRIPT_DIR/append_log_entry.sh" "$ENG_DIR" operator "Run stop" \
+            "stop_reason=queue_incomplete" \
+            "Report freshness guard blocked completion: ${reason_text}" >/dev/null 2>&1 || true
+    fi
+    printf 'Report freshness guard blocked completion:\n' >&2
+    printf '  - %s\n' "${reasons[@]}" >&2
+    exit 2
+}
+
+write_finalize_stamp() {
+    local findings_file="$ENG_DIR/findings.md"
+    local stamp="$ENG_DIR/finalize-stamp.json"
+    local source_count=0 active=0 processing=0
+    if [[ -f "$findings_file" ]]; then
+        source_count="$(rg -c '^## \[FINDING-[A-Z]{2}-[0-9]{3}\]' "$findings_file" 2>/dev/null || printf '0')"
+        source_count="${source_count:-0}"
+    fi
+    if [[ -f "$DB_FILE" ]]; then
+        active="$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM cases WHERE stage IN ('ingested','vuln_confirmed','fuzz_pending');" 2>/dev/null || printf '0')"
+        processing="$(sqlite3 "$DB_FILE" "SELECT COUNT(*) FROM cases WHERE status='processing';" 2>/dev/null || printf '0')"
+    fi
+    jq -n \
+        --arg end_time "$END_TIME" \
+        --arg target "$(jq -r '.target // ""' "$SCOPE_FILE" 2>/dev/null || true)" \
+        --argjson finding_count "${source_count:-0}" \
+        --argjson active_stage_cases "${active:-0}" \
+        --argjson processing_cases "${processing:-0}" \
+        --arg report_sha256 "$(sha256sum "$REPORT_FILE" 2>/dev/null | cut -d' ' -f1 || true)" \
+        --arg findings_sha256 "$(sha256sum "$findings_file" 2>/dev/null | cut -d' ' -f1 || true)" \
+        '{end_time:$end_time, target:$target, finding_count:$finding_count, active_stage_cases:$active_stage_cases, processing_cases:$processing_cases, report_sha256:$report_sha256, findings_sha256:$findings_sha256}' \
+        >"$stamp" 2>/dev/null || true
+}
+
 continuous_observation_loop() {
     local target interval
     target="$(jq -r '.target // empty' "$SCOPE_FILE" 2>/dev/null || true)"
@@ -212,6 +297,7 @@ if continuous_target_matches; then
 fi
 
 recall_finalize_guard
+report_freshness_guard
 
 END_TIME="$(engagement_now_utc)"
 START_TIME="$(jq -r '.start_time // empty' "$SCOPE_FILE" 2>/dev/null || true)"
@@ -276,6 +362,8 @@ if [[ -f "$REPORT_FILE" ]]; then
     ' "$REPORT_FILE" >"$tmp_report"
     mv "$tmp_report" "$REPORT_FILE"
 fi
+
+write_finalize_stamp
 
 rm -f "$ENG_DIR"/tmp-*.md
 

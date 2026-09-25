@@ -232,12 +232,18 @@ _auth_header_args() {
     fi
 
     jq -r '
+      def scalar: if type == "string" or type == "number" or type == "boolean" then tostring else null end;
       [
-        (if (.cookies | type) == "object" and ((.cookies | keys | length) > 0)
-         then "Cookie: " + (.cookies | to_entries | map(.key + "=" + .value) | join("; "))
+        (if (.cookies | type) == "object"
+         then [.cookies | to_entries[]
+               | select(.value | type == "string" or type == "number" or type == "boolean")
+               | "\(.key)=\(.value | scalar)"]
+               | if length > 0 then "Cookie: " + join("; ") else empty end
          else empty end),
         (if (.headers | type) == "object"
-         then (.headers | to_entries[] | .key + ": " + .value)
+         then (.headers | to_entries[]
+               | select(.value | type == "string" or type == "number" or type == "boolean")
+               | "\(.key): \(.value | scalar)")
          else empty end)
       ] | .[]
     ' "$auth_file" 2>/dev/null | while IFS= read -r header; do

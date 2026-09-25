@@ -64,14 +64,31 @@ truncate() {
   if [ "${#text}" -le "$max_len" ]; then
     printf '%s' "$text"
   else
-    printf '%s...' "${text:0:max_len}"
+    local dropped=$(( ${#text} - max_len ))
+    printf '%s...[+%d chars truncated; save the full text under the engagement scans/ or downloads/ directory]' \
+      "${text:0:max_len}" "$dropped"
   fi
 }
 
-TIMESTAMP="$(date +%H:%M)"
-SHORT_TITLE="$(truncate "$TITLE" 80)"
-SHORT_ACTION="$(truncate "$ACTION" 240)"
-SHORT_RESULT="$(truncate "$RESULT" 360)"
+# Defaults are deliberately generous: a truncated Action/Result hides the exact
+# failure the log is supposed to preserve. Override only to tighten.
+MAX_TITLE_LEN="${REDTEAM_LOG_MAX_TITLE:-120}"
+MAX_ACTION_LEN="${REDTEAM_LOG_MAX_ACTION:-1200}"
+MAX_RESULT_LEN="${REDTEAM_LOG_MAX_RESULT:-4000}"
+
+for pair in "MAX_TITLE_LEN=$MAX_TITLE_LEN" "MAX_ACTION_LEN=$MAX_ACTION_LEN" "MAX_RESULT_LEN=$MAX_RESULT_LEN"; do
+  name="${pair%%=*}"
+  value="${pair#*=}"
+  if ! [[ "$value" =~ ^[0-9]+$ ]] || [ "$value" -lt 40 ]; then
+    echo "invalid $name: $value (expected integer >= 40)" >&2
+    exit 1
+  fi
+done
+
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+SHORT_TITLE="$(truncate "$TITLE" "$MAX_TITLE_LEN")"
+SHORT_ACTION="$(truncate "$ACTION" "$MAX_ACTION_LEN")"
+SHORT_RESULT="$(truncate "$RESULT" "$MAX_RESULT_LEN")"
 
 acquire_lock() {
   local attempts=0

@@ -82,6 +82,15 @@ TOOLS=(
     "dig|dnsutils||"
     "whois|whois||"
     "git|git||"
+    "tcpdump|tcpdump||"
+    "tshark|tshark||"
+    "xxd|xxd||"
+    "sipp|sip-tester||"
+    "searchsploit|exploitdb||"
+    "unzip|unzip||"
+    "tar|tar||"
+    "ssh|openssh-client||"
+    "ss|iproute2||"
 )
 
 # path|apt-package|description

@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 12 dedicated skills located in [`agent/skills/`](../agent/skills/):
+The `network-analyst` subagent operates according to 16 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
@@ -167,7 +167,23 @@ General methodology orchestrator. Defines port-to-service classification, safe t
 * **Ports**: Jenkins (8080), GoCD and registries (5000), exposed CI configuration.
 * **Techniques**: Unauthenticated Jenkins/script console/CLI access, GitHub Actions `pull_request_target` and self-hosted runner exposure, Actions cache poisoning, GitLab CI variable leakage, secrets in repository history, dependency confusion, and artifact poisoning.
 
-All twelve skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
+### 13. `voip-sip-testing`
+* **Ports**: SIP signaling (5060/5061 TCP+UDP), SIP over TLS (5061), RTP media (dynamic range), WebRTC gateways.
+* **Techniques**: REGISTER/AUTH challenges and weak SIP credentials, unauthenticated INVITE/OPTIONS, missing digest validation, header-injection through SIP URI user parts, codec/invitation enumeration, and RTP exposure checks. `sipp` is used only for bounded single-message scenarios.
+
+### 14. `embedded-device-testing`
+* **Ports**: Router/NAS/camera/gateway admin planes (80/443/8080/8443/37215/52869), Telnet (23), SSH (22), vendor RPC ports.
+* **Techniques**: Unauthenticated admin-plane access, hardcoded/default device credentials, command-injection parameters in CGI handlers, session/API token exposure in config or export endpoints, and cross-protocol handoffs to the LAN segment.
+
+### 15. `fastcgi-service-testing`
+* **Ports**: FastCGI/FPM (9000/9090) and adjacent HTTP listeners.
+* **Techniques**: Direct FastCGI record framing against the listener, `SCRIPT_FILENAME`/`PHP_VALUE`/`DOCUMENT_ROOT` path-state handling, front-controller and source-disclosure behavior, and HTTP-layer confirmation once the front end is identified. Always confirm-only: no PHP code execution on a listener that was not verified in scope.
+
+### 16. `custom-protocol-reverse-engineering`
+* **Ports**: Any TCP/UDP service that no known-protocol script identifies.
+* **Techniques**: Banner and hexdump capture, framing classification (line/length-prefixed/TLV/fixed-header), bounded structural field mapping, a single read-only request per hypothesis, and byte-differential confirmation. Owns the unknown-service cases that `network-service-testing` classifies and hands off.
+
+All sixteen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
 
 ---
 

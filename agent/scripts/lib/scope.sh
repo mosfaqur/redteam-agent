@@ -65,6 +65,32 @@ continuous_target_matches() {
     return 1
 }
 
+# reopen_completed_engagement <eng_dir> [reason]
+# A completed engagement that receives new evidence is not complete. Callers
+# that append findings or log entries after finalize_engagement.sh must route
+# through this so scope.json can never claim status=complete while new work is
+# landing. Returns 0 when the engagement was reopened, 1 when nothing changed.
+reopen_completed_engagement() {
+    local eng_dir="${1:?engagement dir required}"
+    local reason="${2:-new evidence landed after finalization}"
+    local status phase tmp_scope
+
+    [[ -f "$eng_dir/scope.json" ]] || return 1
+    status="$(jq -r '.status // ""' "$eng_dir/scope.json" 2>/dev/null || true)"
+    phase="$(jq -r '.current_phase // ""' "$eng_dir/scope.json" 2>/dev/null || true)"
+    [[ "$status" == "complete" || "$phase" == "complete" ]] || return 1
+
+    tmp_scope="$(mktemp "${TMPDIR:-/tmp}/scope-reopen.XXXXXX")"
+    jq --arg reason "$reason" '
+      .status = "in_progress"
+      | .current_phase = "report"
+      | del(.end_time)
+      | .reopened_after_complete = (if .reopened_after_complete then (.reopened_after_complete + [{"at": (now | todateiso8601), "reason": $reason}]) else [{"at": (now | todateiso8601), "reason": $reason}] end)
+    ' "$eng_dir/scope.json" >"$tmp_scope"
+    mv "$tmp_scope" "$eng_dir/scope.json"
+    return 0
+}
+
 extract_command_hosts() {
     local command="${1:-}"
 

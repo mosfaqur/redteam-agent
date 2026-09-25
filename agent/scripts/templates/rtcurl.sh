@@ -240,9 +240,13 @@ build_auth_args() {
 
     if ! (( EXPLICIT_COOKIE )) && ! has_explicit_header "cookie"; then
         cookie_header="$(jq -r '
-            if (.cookies | type) == "object" and ((.cookies | keys | length) > 0)
-            then "Cookie: " + (.cookies | to_entries | map(.key + "=" + .value) | join("; "))
-            else empty end
+            def scalar: if type == "string" or type == "number" or type == "boolean" then tostring else null end;
+            (if (.cookies | type) == "object"
+             then [.cookies | to_entries[]
+                   | select(.value | type == "string" or type == "number" or type == "boolean")
+                   | "\(.key)=\(.value | scalar)"]
+                   | if length > 0 then "Cookie: " + join("; ") else empty end
+             else empty end)
         ' "$AUTH_FILE" 2>/dev/null)"
         if [[ -n "$cookie_header" ]]; then
             RTCURL_ARGS+=("-H" "$cookie_header")
@@ -274,9 +278,12 @@ build_auth_args() {
         fi
         RTCURL_ARGS+=("-H" "${key}: ${value}")
     done < <(jq -r '
-        if (.headers | type) == "object"
-        then .headers | to_entries[] | [.key, .value] | @tsv
-        else empty end
+        def scalar: if type == "string" or type == "number" or type == "boolean" then tostring else null end;
+        (if (.headers | type) == "object"
+         then .headers | to_entries[]
+              | select(.value | type == "string" or type == "number" or type == "boolean")
+              | [.key, (.value | scalar)] | @tsv
+         else empty end)
     ' "$AUTH_FILE" 2>/dev/null)
 
     if ! (( EXPLICIT_USER_AGENT )) \

@@ -130,7 +130,7 @@ The operator translates these into `dispatcher.sh ... done <id> --stage <stage>`
 |---|---|
 | `recon` | recon-specialist still in flight on initial discovery |
 | `collect` | katana / source-analyzer still ingesting; cases.db growing |
-| `consume_test` | majority of active cases are in `ingested` or `source_analyzed` |
+| `consume_test` | majority of active cases are in `ingested` (`source_analyzed` is terminal and does NOT count as active) |
 | `exploit` | any case at `vuln_confirmed` or any exploit-developer in flight |
 | `report` | report-writer running, no other in-flight subagent |
 
@@ -150,7 +150,8 @@ Exit allowed only when ALL of the following hold:
 - `dispatcher.sh stats-by-stage` shows zero cases in active stages: `ingested`, `vuln_confirmed`, `fuzz_pending`
 - zero cases in `processing` status (no in-flight subagent batch)
 - `check_collection_health.sh` passes
-- `check_surface_coverage.sh` passes
+- `check_surface_coverage.sh` passes (an empty `surfaces.jsonl` FAILS unless `REDTEAM_SURFACE_COVERAGE_ALLOW_EMPTY=1` is set deliberately and the reason is logged)
+- `check_finding_case_linkage.sh` passes (every finding traces back to a cases.db id, or carries `n/a — <reason>`)
 - recon-specialist has returned at least once (no still-in-flight initial recon)
 
 Cases at `api_tested`, `clean`, `exploited`, `errored` do NOT block exit (they're terminal). This replaces the old "pending=0 AND processing=0" rule which required draining all cases through one big consume_test pass.
@@ -179,6 +180,7 @@ These rules from the prior phase flow still apply per-stage:
 - a subagent handoff is not complete unless the `### Case Outcomes` section accounts for every fetched case ID exactly once with `DONE STAGE=<stage>` / `REQUEUE` / `ERROR`
 - NEVER combine outcome recording (`done`, `error`, `requeue`, `append_*`, queue stats, scope/findings/log updates) and `fetch_batch_to_file.sh` in the same bash call. First record outcomes. Then a dedicated fetch+dispatch.
 - if subagent output includes `REQUEUE_CANDIDATE` or names an untested higher-risk family, requeue rather than retire
+- every case has a requeue budget: `dispatcher.sh requeue` allows at most 3 requeues per case (`REDTEAM_MAX_REQUEUES` overrides) and marks the case `errored`/terminal when the budget is spent. `Requeue cap reached` in the output is not a bug to retry — log the exhausted case, record the evidence-backed blocker reason once, and move to the next concrete action. Never raise the cap to force the same case through again.
 - when source-analysis keeps collapsing sibling carriers into the SAME exact browser-flow follow-up (same `/#/...` route or same concrete `./scripts/browser_flow.py --url ...` next step), dispatch one bounded live route execution for that exact route before fetching another same-family surface/page batch. Do not keep feeding near-duplicate carriers back through source-analyzer while the preserved exact route follow-up is still waiting.
 - if source-analysis has already route-captured a concrete `/#/...` page and the remaining work is the FIRST bounded `browser_flow.py` pass, do NOT send that page case back to source-analyzer. Hand that exact route to exploit-developer as the live-route execution owner next, unless new source artifacts arrived that materially change the route evidence.
 - if a concrete dynamic-render/auth/workflow surface already preserves that exact follow-up, treat later sibling carriers as duplicates to retire, not as a reason to queue a second or third copy of the same live-route work.
@@ -188,6 +190,8 @@ These rules from the prior phase flow still apply per-stage:
 ### Rule 7 — surface coverage gate (kept, applies before exit only)
 
 Before declaring the cycle complete, run `./scripts/reconcile_surface_coverage.sh "$DIR" --ingest-followups` and then `./scripts/check_surface_coverage.sh "$DIR"`. If `reconcile_surface_coverage.sh` adds follow-up cases (which land at stage `ingested`), stay in the loop and process them.
+
+An empty `surfaces.jsonl` FAILS this gate: zero surface records is an unresolved coverage state, not a pass. Ingest the real recon/source surfaces, downgrade each concrete surface, or — only for an engagement that genuinely has no coverable surface — set `REDTEAM_SURFACE_COVERAGE_ALLOW_EMPTY=1` and log why in the same turn.
 
 If coverage still fails, mark the surface with `./scripts/append_surface.sh "$DIR" <surface_type> <target> <source> <rationale> [evidence_ref] covered|not_applicable|deferred` using existing evidence, OR dispatch exactly one bounded surface-coverage follow-up batch. A `surface_coverage_incomplete` stop is forbidden while the log still says unresolved surfaces "need another bounded coverage pass": the same assistant turn must either ingest/fetch/dispatch that follow-up work or downgrade each concrete surface to `covered`, `not_applicable`, or evidence-backed `deferred` first. Do not transition to `report`, emit `incomplete_stop`, or end the run just because the active-stage queue is drained when high-risk surface coverage remains unresolved.
 
@@ -256,6 +260,8 @@ A partial report is never a report-phase parking state. If `report.md.partial` e
 
 After report generation, NEVER mutate `scope.json` directly with raw `jq`/`python` to force `.status = "complete"` or `.current_phase = "complete"`. The ONLY allowed report-finalization command is `./scripts/finalize_engagement.sh "$DIR"`.
 
+`finalize_engagement.sh` is transactional: it refuses to complete when `report.md` is missing, is still the partial stub, is older than `findings.md`, or its `<!-- findings_reconciliation: source_count=N reported_count=N -->` marker does not match the current findings count. It also writes `finalize-stamp.json` (finding count + report/findings SHA-256) for audit. A blocked finalize (exit code 2) means the report must be regenerated, not that `scope.json` should be patched. If a new finding lands after completion, `append_finding.sh` reopens the engagement as `in_progress`/`report` and logs `Engagement reopened`, so a late finding can never hide behind a `complete` status.
+
 For continuous-observation targets, `report-writer` stops after writing `report.md`; the operator MUST run `./scripts/finalize_engagement.sh "$DIR"` itself as the final blocking action. If that command enters/reports a continuous observation hold or does not exit normally, the run remains active in `report`; do NOT append `stop_reason=completed`, do NOT override `scope.json` afterward.
 
 Continuous-observation hold timeouts are expected, not `runtime_error`. When the finalization command output contains `Continuous observation hold active`, `continuous observation hold active`, or `stopping continuous observation hold`, the operator MUST NOT emit any `Stop reason:` line, MUST NOT use the `runtime_error` stop code, and MUST NOT write a fallback `Run stop` entry. The only acceptable terminal response is a short observation-hold acknowledgement that the run remains active in `report` for continuous monitoring.
@@ -269,6 +275,7 @@ Before any final stop/completion message:
 - if any case is in `processing` status (in-flight subagent), wait for the outcome before stopping
 - if `./scripts/check_collection_health.sh "$DIR"` fails, do NOT stop
 - if `./scripts/check_surface_coverage.sh "$DIR"` fails, do NOT stop
+- if `./scripts/check_finding_case_linkage.sh "$DIR"` fails, do NOT stop (fix the `**Case**` field or record `n/a — <reason>` first)
 - if `./scripts/finalize_engagement.sh "$DIR"` entered a continuous observation hold or did not exit normally, do NOT emit `completed`, do NOT try to override `scope.json` afterward, do NOT emit a `Stop reason:` line, do NOT use `runtime_error`, and do NOT write a `Run stop` fallback for that hold
 - assistant turn boundary, context bloat, or token budget pressure by themselves are NOT valid stop reasons; shrink context with targeted reads and keep advancing
 - cases at terminal stages (`api_tested`, `clean`, `exploited`, `errored`) do NOT block exit — they're done. Only the active-stage tally matters.
@@ -399,6 +406,7 @@ This allocates the next prefixed ID under a lock and updates `Finding Count`.
 ```
 ## [FINDING-XX-NNN] Title
 - **Discovered by**: <agent-name>
+- **Case**: <cases.db id> | `n/a — <reason>`
 - **Severity**: CRITICAL | HIGH | MEDIUM | LOW | INFO
 - **OWASP Category**: e.g., A03:2021 Injection
 - **Type**: e.g., SQL Injection (Union-based)
@@ -406,6 +414,8 @@ This allocates the next prefixed ID under a lock and updates `Finding Count`.
 - **Evidence**: Command + Response excerpt
 - **Impact**: what an attacker can achieve
 ```
+
+Every finding MUST carry a `**Case**` field so each result traces back to the queue row that produced it. Use the case id from the `### Case Outcomes` block you were given. If the issue did not come from a queue case (for example OSINT, an operator-confirmed probe, or a lab challenge API), write `n/a — <short reason>` instead of leaving the field out. `check_finding_case_linkage.sh` rejects findings with a missing field or a `**Case**` id that does not exist in cases.db. `REDTEAM_SKIP_FINDING_CASE_LINKAGE=1` downgrades the gate to a warning and is reserved for engagements created before this gate existed — never use it to bypass a new finding.
 
 Duplicate-finding guard:
 - If YOU directly confirm a new issue, append it yourself exactly once via `append_finding.sh` before you return.
@@ -452,7 +462,7 @@ Root: scope.json, log.md, findings.md, intel.md, intel-secrets.json, report.md, 
 
 ## Skills
 
-55 attack methodology skills are loaded in context. Do NOT call a skill tool for them.
+60 attack methodology skills are loaded in context. Do NOT call a skill tool for them.
 Follow the relevant skill methodology directly from context; if a skill file must be consulted, read the matching `skills/<name>/SKILL.md` file in the workspace instead of invoking a tool named `skill`.
 No applicable skill? → check references/INDEX.md. Still nothing? → propose a custom tool or direct procedure.
 

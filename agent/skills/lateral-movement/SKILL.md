@@ -107,6 +107,24 @@ run_tool proxychains nmap -sn INTERNAL_SUBNET
 
 Enumerate the reachable segment, validate one candidate credential, and hand the actual movement chain to exploit-developer rather than silently pivoting through unrelated hosts.
 
+### 8. Loopback and App-Server-Only Services
+
+From a stable, evidence-backed foothold, treat services that are only reachable on the host loopback or app-server subnet—admin panels bound to loopback, internal dashboards, cloud-metadata-style endpoints, and local databases with no external exposure—as a separate pivot surface. Reach them through one already-confirmed path: a bounded `run_tool ssh -L` local port forward, a `run_tool ssh -D` SOCKS proxy through the existing session, or a server-side request primitive that was already confirmed; do not create a new pivot mechanism.
+
+Enumerate locally listening services once through the established session and compare the saved list with the external recon. The delta is the pivot surface. Internal management/agent ports and device control APIs (RPC, telnet/SSH on the LAN segment, and VoIP control interfaces) are pivot candidates only when supported by in-scope internal evidence. Build a small explicit list (max 10 hosts) and never sweep the whole private range. After the foothold is stable and evidence-backed, test one loopback-only admin endpoint for missing authentication and one for command injection, with two bounded requests total. Record an out-of-scope observation instead of connecting to an out-of-scope host, third-party infrastructure, or a system with no engagement evidence.
+
+```bash
+mkdir -p "$DIR/scans"
+printf '%s\n' 'cap: 1 local-listener enumeration, 2 loopback probes, max 10 in-scope internal hosts' > "$DIR/scans/loopback-cap.txt"
+run_tool ssh -o BatchMode=yes -o ConnectTimeout=5 SESSION 'ss -lntp' > "$DIR/scans/loopback-listeners.txt" 2>&1
+printf '%s\n' 'pivot_delta=compare loopback-listeners.txt with the external recon evidence before selecting targets' > "$DIR/scans/loopback-pivot-surface.txt"
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 "https://HOST:PORT/admin/" -D "$DIR/scans/loopback-admin.headers" -o "$DIR/scans/loopback-admin.html"
+run_tool curl -sS -k --connect-timeout 5 --max-time 20 --data-urlencode 'target=;id' "https://HOST:PORT/diagnostic" -D "$DIR/scans/loopback-injection.headers" -o "$DIR/scans/loopback-injection.txt"
+run_tool nmap -Pn -sT -p 22,23,80,443,872,9090,5060,5061 --max-hosts 10 --host-timeout 30s --max-retries 1 INTERNAL_HOST_1 INTERNAL_HOST_2 INTERNAL_HOST_3 INTERNAL_HOST_4 INTERNAL_HOST_5 INTERNAL_HOST_6 INTERNAL_HOST_7 INTERNAL_HOST_8 INTERNAL_HOST_9 INTERNAL_HOST_10 > "$DIR/scans/loopback-internal-candidates.txt" 2>&1
+```
+
+Use the existing local-forward, SOCKS, or confirmed server-side request primitive for the two probe URLs; `HOST` and `PORT` identify the selected in-scope loopback or app-server endpoint. The two loopback requests are the only endpoint probes, and the explicit host list is the only internal enumeration. If any candidate lacks in-scope evidence, record it as out of scope and do not connect.
+
 ### Lab objective recall closure
 
 When the active profile lists a movement objective, requeue the exact AD path, remote transport, share staging, or tunnel workflow that already produced an edge, save one bounded result under `$DIR/scans/`, and run `python3 ./scripts/lab_objective.py snapshot "$DIR"`. Hand off `objective=<name> status=solved|requeued evidence=<path> next=<exact action>`; do not call an open port or share listing solved movement.

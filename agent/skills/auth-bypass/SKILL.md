@@ -47,6 +47,39 @@ run_tool hydra -l root -P passwords.txt target ssh -t 4
 - Response manipulation (`"success":false` → `true`), backup code enumeration
 - MFA not enforced on all auth paths, disable without re-auth
 
+### 6. Anti-Automation and Account-State Controls
+
+Classify each CAPTCHA as a simple math/text CAPTCHA, an image/slider challenge, a proof-of-work challenge, or a third-party challenge. Inspect the same response and its related requests for an embedded answer, a predictable nonce, client-side-only validation, or an API that returns the answer, then confirm whether validation is enforced server-side.
+
+For rate limiting and lockout, use no more than five requests. Determine whether failed logins are throttled, whether the counter is per-IP, per-account, or per-session, whether it resets, and whether a successful login clears it. Compare unknown-user, known-user, wrong-password, and disabled/locked-account responses by status code, body length, redirect target, and response time; report account enumeration only when the differential is reproducible.
+
+Test workflow/state bypasses by registering and then logging in without verifying the email, reusing a pre-verification token, and replaying setup or reset tokens out of order. Bypass of a trivially solvable challenge or absent rate limiting is a finding; a locked-out account is an environmental blocker to record, not a bypass.
+
+```bash
+MAX_REQUESTS=5
+BASE="https://HOST"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -c "$DIR/scans/auth-unknown.cookies" \
+  -D "$DIR/scans/auth-unknown.headers" -o "$DIR/scans/auth-unknown.body" \
+  -w 'status=%{http_code} body_bytes=%{size_download} redirect=%{redirect_url} time=%{time_total}\n' \
+  -d 'username=UNKNOWN_USER&password=WRONG_PASSWORD&captcha_response=CAPTCHA_RESPONSE' "$BASE/LOGIN"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -c "$DIR/scans/auth-known.cookies" \
+  -D "$DIR/scans/auth-known.headers" -o "$DIR/scans/auth-known.body" \
+  -w 'status=%{http_code} body_bytes=%{size_download} redirect=%{redirect_url} time=%{time_total}\n' \
+  -d 'username=KNOWN_TEST&password=WRONG_PASSWORD&captcha_response=CAPTCHA_RESPONSE' "$BASE/LOGIN"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -b "$DIR/scans/auth-known.cookies" -c "$DIR/scans/auth-known.cookies" \
+  -D "$DIR/scans/auth-known-repeat.headers" -o "$DIR/scans/auth-known-repeat.body" \
+  -w 'status=%{http_code} body_bytes=%{size_download} redirect=%{redirect_url} time=%{time_total}\n' \
+  -d 'username=KNOWN_TEST&password=WRONG_PASSWORD&captcha_response=CAPTCHA_RESPONSE' "$BASE/LOGIN"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -c "$DIR/scans/auth-disabled.cookies" \
+  -D "$DIR/scans/auth-disabled.headers" -o "$DIR/scans/auth-disabled.body" \
+  -w 'status=%{http_code} body_bytes=%{size_download} redirect=%{redirect_url} time=%{time_total}\n' \
+  -d 'username=DISABLED_TEST&password=WRONG_PASSWORD&captcha_response=CAPTCHA_RESPONSE' "$BASE/LOGIN"
+run_tool curl -sS --connect-timeout 5 --max-time 20 -b "$DIR/scans/auth-known.cookies" -c "$DIR/scans/auth-known.cookies" \
+  -D "$DIR/scans/auth-success.headers" -o "$DIR/scans/auth-success.body" \
+  -w 'status=%{http_code} body_bytes=%{size_download} redirect=%{redirect_url} time=%{time_total}\n' \
+  -d 'username=KNOWN_TEST&password=VALID_TEST_PASSWORD&captcha_response=CAPTCHA_RESPONSE' "$BASE/LOGIN"
+```
+
 ## Authorization Testing
 
 ### 1. IDOR

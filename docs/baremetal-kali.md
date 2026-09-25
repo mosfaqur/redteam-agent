@@ -53,6 +53,8 @@ To ensure all 9 agents can execute their specialized capabilities, the host Kali
 | **Traffic & Browser** | `mitmdump`, `chromium`, `chromedriver` | `mitmproxy`, `chromium`, `chromium-driver` |
 | **Post-Exploitation**| `msfrpcd` (Metasploit) | `metasploit-framework` |
 | **System & Parsing** | `jq`, `sqlite3`, `python3`, `openssl`, `rg`, `git` | `jq`, `sqlite3`, `python3`, `openssl`, `ripgrep`, `git` |
+| **Packet & Protocol Analysis** | `tcpdump`, `tshark`, `xxd` | `tcpdump`, `tshark`, `xxd` |
+| **VoIP, Archives & Transfers** | `sipp`, `searchsploit`, `unzip`, `tar`, `ssh`, `ss` | `sip-tester`, `exploitdb`, `unzip`, `tar`, `openssh-client`, `iproute2` |
 | **Dictionaries** | SecLists, rockyou, common wordlists | `seclists`, `wordlists` |
 
 ### Manual Dependency Installation
@@ -64,6 +66,7 @@ sudo apt-get update && sudo apt-get install -y \
   netcat-traditional wget curl nuclei subfinder katana arjun \
   mitmproxy chromium chromium-driver metasploit-framework \
   ripgrep jq sqlite3 python3 openssl dnsutils whois git \
+  tcpdump tshark xxd sip-tester exploitdb unzip tar openssh-client iproute2 \
   seclists wordlists
 ```
 

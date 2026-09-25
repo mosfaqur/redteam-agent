@@ -47,7 +47,7 @@ The system comprises five core subsystems:
 1. **Operator Engine**: The primary decision loop driving phase progression and delegating work.
 2. **Specialized Subagent Pool**: 8 task-specific worker personas with isolated toolsets.
 3. **Streaming Case Pipeline**: SQLite-backed case queue with multi-source ingestion and atomic batch dispatch.
-4. **Methodology & Reference Library**: 55 offensive attack skills and 79 reference manuals.
+4. **Methodology & Reference Library**: 60 offensive attack skills and 79 reference manuals.
 5. **Lab Profile & Closure Gate**: Declarative target fingerprinting and objective verification engine.
 
 ---

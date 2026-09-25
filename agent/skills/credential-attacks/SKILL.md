@@ -55,7 +55,43 @@ run_tool hydra -L "$DIR/scans/spray-usernames.txt" -p 'CANDIDATE_PASSWORD' -t 1 
 
 Limit the file to the precomputed attempt count. Do not run brute force concurrently across users, hosts, or protocol modules.
 
-### 5. Correlate Username Enumeration
+### 5. Rate-Limit-Aware Credential Attacks
+
+Before any spray, measure the lockout/throttle surface with deliberately invalid attempts: at most 3 per account and at most 2 accounts. Set the spray ceiling from the observed threshold rather than guessing.
+
+Hard-cap any spray at one pass and at most 5 candidates per username, and stop on the first success. If no lockout exists, report `no rate limiting / account lockout on authentication endpoints` as its own finding with evidence instead of silently consuming the spray. If lockout exists, stop before triggering it, report the lockout policy as a control, and switch to a targeted list of usernames already discovered in-scope. Never spray third-party or out-of-scope authentication endpoints; keep engagement-local wordlists under `$DIR/scans/`.
+
+```bash
+MAX_PROBES_PER_ACCOUNT=3
+MAX_PROBE_ACCOUNTS=2
+MAX_SPRAY_CANDIDATES_PER_USERNAME=5
+BASE="https://HOST"
+PROBE_ACCOUNTS=(ACCOUNT_ONE ACCOUNT_TWO)
+for account in "${PROBE_ACCOUNTS[@]}"; do
+  for attempt in 1 2 3; do
+    run_tool curl -sS --connect-timeout 5 --max-time 20 \
+      -D "$DIR/scans/credential-probe-${account}-${attempt}.headers" \
+      -o "$DIR/scans/credential-probe-${account}-${attempt}.body" \
+      -d "username=${account}&password=WRONG_PASSWORD" "$BASE/LOGIN"
+  done
+done
+if [ "${LOCKOUT_OBSERVED:-unknown}" = "no" ]; then
+  printf '%s\n' 'Record finding: no rate limiting / account lockout on authentication endpoints; attach the probe evidence.'
+  : > "$DIR/scans/local-candidates-max-5.txt"
+  candidate_count=0
+  while IFS= read -r candidate; do
+    [ "$candidate_count" -ge "$MAX_SPRAY_CANDIDATES_PER_USERNAME" ] && break
+    printf '%s\n' "$candidate" >> "$DIR/scans/local-candidates-max-5.txt"
+    candidate_count=$((candidate_count + 1))
+  done < "$DIR/scans/local-candidates.txt"
+  run_tool hydra -f -L "$DIR/scans/targeted-usernames.txt" -P "$DIR/scans/local-candidates-max-5.txt" \
+    -t 1 -W 5 "https://HOST/LOGIN" https-post-form "username=^USER^&password=^PASS^:Invalid credentials"
+else
+  printf '%s\n' 'Stop before lockout; report the policy and use the targeted in-scope username list.'
+fi
+```
+
+### 6. Correlate Username Enumeration
 
 Compare one known-invalid identity with one candidate identity using the same password. Correlate status, length, wording, redirect, MFA challenge, headers, cookies, and repeated timing; do not rely on a single timing sample.
 
@@ -66,13 +102,13 @@ run_tool curl -sS --connect-timeout 5 --max-time 20 -D "$DIR/scans/enum-candidat
 
 Write confirmed usernames and their source to `$DIR/intel.md`. Differing lockout policy is still an enumeration signal.
 
-### 6. Evaluate Password Policy
+### 7. Evaluate Password Policy
 
 Confirm minimum length, character-class requirements, common-password controls, history, expiration, and forced rotation from the policy output and user-facing flow. Confirm whether MFA, breached-password screening, or lockout compensates for weak composition rules.
 
 Flag short minimums, no complexity or breached-password control, unlimited lifetime, and forced periodic rotation without actual reuse detection. Do not flag missing scheduled rotation when breach/reuse controls exist, and do not infer policy from one login response.
 
-### 7. Identify and Crack Hashes
+### 8. Identify and Crack Hashes
 
 Identify hash types from the saved artifact, then select a verified mode. Common markers include `$2*$` for bcrypt, `$NT$` for NetNTLMv1, 32-hex MD4 responses for NTLM, `$1$`/`$5$` for crypt families, and `$argon2*` for Argon2.
 
@@ -84,7 +120,7 @@ run_tool john --potfile="$DIR/scans/john.pot" --wordlist="$DIR/scans/candidate-p
 
 Keep every potfile under `$DIR/scans/`. Treat NTLM, NetNTLM, and Kerberos input as username-bound; do not crack without the required account context.
 
-### 8. Spray Active Directory
+### 9. Spray Active Directory
 
 Use a deduplicated, policy-cleared list capped at the remaining online budget. Disable password spraying inside nxc and keep concurrency low.
 
@@ -95,11 +131,11 @@ run_tool nxc smb HOST -U "$DIR/scans/ad-users.txt" -p 'CANDIDATE_PASSWORD' --no-
 
 Stop on lockout thresholds. Reuse a successful pair only against explicitly in-scope services and only after deduplicating prior validations.
 
-### 9. Reuse Engagement Intel
+### 10. Reuse Engagement Intel
 
 Correlate `$DIR/intel.md`, `$DIR/auth.json`, source artifacts, backups, configuration, tickets, and repository history. Test one high-confidence username/password pair per distinct service; prioritize privileged, service, and shared accounts.
 
-### 10. Record Every Valid Credential
+### 11. Record Every Valid Credential
 
 Write every valid credential to `$DIR/auth.json` and `$DIR/intel.md` immediately. Preserve the canonical top-level schema: `cookies`, `headers`, `tokens`, `discovered_credentials`, `validated_credentials`, and `credentials`.
 

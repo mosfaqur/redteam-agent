@@ -1877,6 +1877,7 @@ def _synthesize_completion_report(engagement_dir: Path, scope: dict[str, object]
                     [
                         f"### [{finding_id}] {finding.get('title', 'Untitled finding')}",
                         f"- **Original ID**: {finding.get('original_id', '')}",
+                        f"- **Source Case**: {finding.get('case', 'Not recorded')}",
                         f"- **Severity**: {finding.get('severity', 'INFO')}",
                         f"- **OWASP Category**: {finding.get('owasp_category', 'Unspecified')}",
                         f"- **Type**: {finding.get('type', 'Unspecified')}",

@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib/findings.sh"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/lib/scope.sh"
 EMIT_RUNTIME_EVENT="$SCRIPT_DIR/emit_runtime_event.sh"
 
 ENG_DIR="${1:?usage: append_finding.sh <engagement_dir> <agent-name> <finding-body-file>}"
@@ -46,6 +48,21 @@ fi
 } >>"$FINDINGS_FILE"
 
 update_finding_count "$FINDINGS_FILE"
+
+if ! grep -qE '^[[:space:]]*[-*][[:space:]]+\*\*Case\*\*[[:space:]]*:' "$tmp_file"; then
+    printf 'WARN: %s has no **Case** field; check_finding_case_linkage.sh will reject the report until the source case id (or `n/a — <reason>`) is added\n' "$finding_id" >&2
+fi
+
+# A finding that lands after finalization reopens the engagement: the previous
+# report cannot cover it, so status=complete would be a false claim.
+if reopen_completed_engagement "$ENG_DIR" "new finding recorded after finalization"; then
+    if [[ -x "$SCRIPT_DIR/append_log_entry.sh" ]]; then
+        "$SCRIPT_DIR/append_log_entry.sh" "$ENG_DIR" operator "Engagement reopened" \
+            "reopen_reason=new_finding_after_complete" \
+            "finalize_engagement.sh ran before this finding existed; status reset to in_progress/report and the report must be regenerated" >/dev/null 2>&1 || true
+    fi
+    printf 'WARN: engagement was complete; reopened to in_progress/report because %s was added after finalization\n' "$finding_id" >&2
+fi
 
 rm -f "$tmp_file"
 if [[ -f "$EMIT_RUNTIME_EVENT" ]]; then

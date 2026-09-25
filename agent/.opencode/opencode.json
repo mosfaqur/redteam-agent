@@ -60,6 +60,11 @@
     "skills/cloud-testing/SKILL.md",
     "skills/ci-cd-security/SKILL.md",
     "skills/tls-ssl-testing/SKILL.md",
+    "skills/custom-protocol-reverse-engineering/SKILL.md",
+    "skills/voip-sip-testing/SKILL.md",
+    "skills/embedded-device-testing/SKILL.md",
+    "skills/fastcgi-service-testing/SKILL.md",
+    "skills/waf-evasion-testing/SKILL.md",
     "references/INDEX.md"
   ],
   "plugin": [

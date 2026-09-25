@@ -97,5 +97,8 @@ API Key Graceful Degradation:
 9. FINDING IDs: Never hand-allocate IDs. Write findings with `## [FINDING-ID] Title`, then append via:
    `./scripts/append_finding.sh "$DIR" osint-analyst <finding-body-file>`
    This allocates the next `FINDING-OS-NNN` under a lock and updates `Finding Count`.
+   Every finding body MUST include a `- **Case**: <case id from your ### Case Outcomes block>` line
+   (use `n/a — <short reason>` only when the issue did not come from a queue case). Report generation
+   is blocked by `check_finding_case_linkage.sh` until every finding traces to a cases.db id.
    When creating `<finding-body-file>` or temp evidence summaries, use a single-quoted heredoc
    (`<<'EOF'`) unless shell expansion is explicitly required.

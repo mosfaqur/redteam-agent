@@ -22,11 +22,11 @@ Read ALL before writing:
 4. tools/ — custom scripts (reference in appendix)
 5. cases.db — pull both the legacy status breakdown and the streaming-pipeline stage breakdown:
    `sqlite3 -json <dir>/cases.db "PRAGMA busy_timeout=5000; SELECT type, stage, status, COUNT(*) as count FROM cases GROUP BY type, stage, status ORDER BY type, stage, status;"`
-   Stages: `ingested|source_analyzed|vuln_confirmed|fuzz_pending` are active (case still moving);
-   `api_tested|clean|exploited|errored` are terminal. Use the stage tally to report concrete
+   Stages: `ingested|vuln_confirmed|fuzz_pending` are active (case still moving);
+   `source_analyzed|api_tested|clean|exploited|errored` are terminal. Use the stage tally to report concrete
    coverage: how many cases reached `vuln_confirmed` (worth deeper exploit), how many retired at
-   `api_tested` / `clean`, and how many errored. `compose_partial_report.sh` already prints a
-   `pipeline stages:` line — read it for the canonical interim snapshot.
+   `source_analyzed` (source carrier analyzed) / `api_tested` / `clean`, and how many errored.
+   `compose_partial_report.sh` already prints a `pipeline stages:` line — read it for the canonical interim snapshot.
 6. intel.md — OSINT intelligence: technology stack, people, emails, domains, credentials, CVEs, breach data
 
 === REPORT STRUCTURE ===
@@ -56,6 +56,7 @@ Write to: <engagement-dir>/report.md
 |-------|-------|
 | Severity | HIGH / MEDIUM / LOW / INFO |
 | Discovered by | <agent> |
+| Source Case | <cases.db id from the finding's **Case** field, or n/a> |
 | OWASP Category | e.g., A03:2021 Injection |
 | Type | e.g., SQL Injection (Union-based) |
 | Endpoint | e.g., /api/search |
@@ -82,8 +83,8 @@ If no credible multi-step chains exist, write exactly:
 ## Appendix
 A. Tools Used (table)  B. Custom Scripts  C. Full scope.json  D. Timeline from log.md
 E. Test Coverage from cases.db: include a stage breakdown by type (active stages
-   `ingested|source_analyzed|vuln_confirmed|fuzz_pending` vs terminal stages
-   `api_tested|clean|exploited|errored`), plus the legacy status breakdown
+   `ingested|vuln_confirmed|fuzz_pending` vs terminal stages
+   `source_analyzed|api_tested|clean|exploited|errored`), plus the legacy status breakdown
    (`pending|processing|done|error`) and overall coverage %.
 
 ```
@@ -94,7 +95,7 @@ E. Test Coverage from cases.db: include a stage breakdown by type (active stages
 - SEVERITY: use ratings as-is from findings.md (after consolidation renumbering)
 - REMEDIATION: specific fixes referencing standards (OWASP, CIS)
 - COMPLETENESS: account for every finding, note untested areas if interrupted
-- INTEGRITY: run `./scripts/check_findings_integrity.sh "$DIR"`, `./scripts/check_target_curl_usage.sh "$DIR"`, `./scripts/check_katana_usage.sh "$DIR"`, `./scripts/check_collection_health.sh "$DIR"`, and `./scripts/check_surface_coverage.sh "$DIR"` first; if any fail, stop and report the duplicate IDs, count mismatch, raw runtime bypasses, collection failures, or unresolved surfaces instead of normalizing silently
+- INTEGRITY: run `./scripts/check_findings_integrity.sh "$DIR"`, `./scripts/check_finding_case_linkage.sh "$DIR"`, `./scripts/check_target_curl_usage.sh "$DIR"`, `./scripts/check_katana_usage.sh "$DIR"`, `./scripts/check_collection_health.sh "$DIR"`, and `./scripts/check_surface_coverage.sh "$DIR"` first; if any fail, stop and report the duplicate IDs, count mismatch, untraced findings, raw runtime bypasses, collection failures, or unresolved surfaces instead of normalizing silently
 
 === INTERIM REPORTS ===
 
@@ -122,15 +123,24 @@ Before generating the report:
 5. If data missing, produce report with available data and note gaps.
 6. Always include an `Attack Path Narrative` section with either one or more concrete
    chain scenarios, or the exact sentence `No multi-step attack paths identified.`
-7. After writing `report.md`, decide finalization mode:
+7. RECONCILIATION MARKER (required, final line of report.md): the report is rejected by
+   `finalize_engagement.sh` unless it carries the literal line
+   `<!-- findings_reconciliation: source_count=N reported_count=M -->`
+   where `N` is the number of `## [FINDING-...]` blocks in findings.md (run
+   `rg -c '^## \[FINDING-[A-Z]{2}-[0-9]{3}\]' <dir>/findings.md`) and `M` is the number of
+   findings you actually rendered after dedup/fold-in. `M` must equal `N`; if dedup made them
+   differ, resolve the discrepancy in the report body (render every source finding as its own
+   section, even if some are marked as a duplicate of another) before finalizing. Never claim a
+   count you did not write.
+8. After writing `report.md`, decide finalization mode:
    - Default: run `./scripts/finalize_engagement.sh "$DIR"` yourself to normalize scope/log/report status and SQLite finalization.
    - Continuous-observation target (`REDTEAM_CONTINUOUS_TARGETS` / `CONTINUOUS_OBSERVATION_TARGETS` matches this target): do **NOT** call `finalize_engagement.sh` yourself. Return normally after writing the report and explicitly tell the operator to run `./scripts/finalize_engagement.sh "$DIR"` immediately as the very next action and final blocking action so the runtime stays attached to the observation hold.
    - For continuous-observation targets, your completion note MUST contain a standalone line `Continuous-observation handoff:` followed by a standalone line containing exactly `./scripts/finalize_engagement.sh "$DIR"`. Do not replace that marker with prose-only wording, and do not return only the report path.
-8. Return file path to operator only when `finalize_engagement.sh` exits normally. For continuous-observation targets, return the report path plus the immediate handoff instruction from rule 7 instead of invoking finalize yourself. A report path by itself is invalid for a continuous-observation target.
-9. CHRONOLOGICAL LOGGING: Before generating the report, append:
-   `./scripts/append_log_entry.sh "$DIR" report-writer "Report start" "integrity checks and report generation" "<report type and data sources>"`
-   After writing the report:
-   - Normal targets: after finalizing, append `./scripts/append_log_entry.sh "$DIR" report-writer "Report complete" "final report + finalize" "<report path and final status>"`
-   - Continuous-observation targets: append `./scripts/append_log_entry.sh "$DIR" report-writer "Report complete" "report written; operator must enter continuous observation hold" "<report path and finalize handoff>"` before returning
-10. NEVER call the `skill` tool for report generation. The required structure is already in
+9. Return file path to operator only when `finalize_engagement.sh` exits normally. For continuous-observation targets, return the report path plus the immediate handoff instruction from rule 7 instead of invoking finalize yourself. A report path by itself is invalid for a continuous-observation target.
+10. CHRONOLOGICAL LOGGING: Before generating the report, append:
+    `./scripts/append_log_entry.sh "$DIR" report-writer "Report start" "integrity checks and report generation" "<report type and data sources>"`
+    After writing the report:
+    - Normal targets: after finalizing, append `./scripts/append_log_entry.sh "$DIR" report-writer "Report complete" "final report + finalize" "<report path and final status>"`
+    - Continuous-observation targets: append `./scripts/append_log_entry.sh "$DIR" report-writer "Report complete" "report written; operator must enter continuous observation hold" "<report path and finalize handoff>"` before returning
+11. NEVER call the `skill` tool for report generation. The required structure is already in
     this prompt. Generate the report directly from engagement files.

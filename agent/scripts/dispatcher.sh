@@ -57,6 +57,8 @@ if [[ -z "$DB" || -z "$ACTION" ]]; then
   echo "  retry-errors [max_retries]     Retry error cases (default max: 2)"
   echo "  migrate                        Add missing schema columns (idempotent)"
   echo "  requeue [id_list ...] [reason] Requeue existing case IDs or read JSON lines from stdin"
+  echo "                                 (max 3 requeues per case; REDTEAM_MAX_REQUEUES overrides;"
+  echo "                                 at the cap the case is marked errored/terminal)"
   echo ""
   echo "Stage values (pipeline state machine):"
   echo "  ingested         freshly discovered, needs first-pass triage"
@@ -572,6 +574,7 @@ case "$ACTION" in
     ensure_cases_column "assigned_agent" "TEXT"
     ensure_cases_column "consumed_at" "TEXT"
     sql "ALTER TABLE cases ADD COLUMN retry_count INTEGER DEFAULT 0;" 2>/dev/null || true
+    ensure_cases_column "requeue_count" "INTEGER DEFAULT 0"
     ensure_cases_column "host" "TEXT"
     ensure_cases_column "port" "INTEGER"
     ensure_cases_column "proto" "TEXT"
@@ -610,6 +613,12 @@ case "$ACTION" in
 
   requeue)
     shift 2
+    ensure_cases_column "requeue_count" "INTEGER DEFAULT 0"
+    MAX_REQUEUES="${REDTEAM_MAX_REQUEUES:-3}"
+    if ! [[ "$MAX_REQUEUES" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: REDTEAM_MAX_REQUEUES must be a non-negative integer" >&2
+      exit 1
+    fi
 
     requeued_existing=0
     if (($# > 0)); then
@@ -628,22 +637,36 @@ case "$ACTION" in
 
       if ((${#REQUEUE_ID_ARGS[@]} > 0)); then
         ID_LIST="$(normalize_id_list "${REQUEUE_ID_ARGS[@]}")"
-        # Stage handling: if the case is at a TERMINAL stage
-        # (clean / exploited / api_tested / errored) then requeue treats
-        # it as fresh work and resets stage to ingested. If the case is
-        # at an ACTIVE stage (ingested / source_analyzed / vuln_confirmed)
-        # we preserve the stage so the next subagent picks it up at the
-        # right point in the pipeline (e.g. a vuln_confirmed case
-        # requeued by exploit-developer should stay at vuln_confirmed).
-        sql "UPDATE cases SET
-                status='pending',
-                stage = CASE WHEN stage IN ('clean','exploited','api_tested','errored')
-                             THEN 'ingested' ELSE stage END,
-                assigned_agent=NULL,
-                consumed_at=NULL
-              WHERE id IN (${ID_LIST});"
-        echo "Requeued existing: ${ID_LIST}"
-        emit_case_done_batch "REQUEUE" "$ID_LIST"
+        CAPPED_ID_LIST="$(sql "SELECT group_concat(id, ',') FROM cases WHERE id IN (${ID_LIST}) AND COALESCE(requeue_count,0) >= ${MAX_REQUEUES};")"
+        REQUEUEABLE_ID_LIST="$(sql "SELECT group_concat(id, ',') FROM cases WHERE id IN (${ID_LIST}) AND COALESCE(requeue_count,0) < ${MAX_REQUEUES};")"
+        if [[ -n "$CAPPED_ID_LIST" ]]; then
+          # Loop guard: a case that exhausted its requeue budget becomes
+          # terminal instead of being returned to the queue forever.
+          sql "UPDATE cases SET status='error', stage='errored', assigned_agent=NULL, consumed_at=NULL WHERE id IN (${CAPPED_ID_LIST});"
+          echo "Requeue cap reached (${MAX_REQUEUES} requeues, REDTEAM_MAX_REQUEUES), marked errored: ${CAPPED_ID_LIST}"
+          emit_case_done_batch "REQUEUE_CAPPED" "$CAPPED_ID_LIST"
+        fi
+        if [[ -n "$REQUEUEABLE_ID_LIST" ]]; then
+          # Stage handling: if the case is at a TERMINAL stage
+          # (clean / exploited / api_tested / errored) then requeue treats
+          # it as fresh work and resets stage to ingested. If the case is
+          # at an ACTIVE stage (ingested / source_analyzed / vuln_confirmed)
+          # we preserve the stage so the next subagent picks it up at the
+          # right point in the pipeline (e.g. a vuln_confirmed case
+          # requeued by exploit-developer should stay at vuln_confirmed).
+          sql "UPDATE cases SET
+                  status='pending',
+                  stage = CASE WHEN stage IN ('clean','exploited','api_tested','errored')
+                               THEN 'ingested' ELSE stage END,
+                  assigned_agent=NULL,
+                  consumed_at=NULL,
+                  requeue_count = COALESCE(requeue_count,0) + 1
+                WHERE id IN (${REQUEUEABLE_ID_LIST});"
+          echo "Requeued existing: ${REQUEUEABLE_ID_LIST}"
+          emit_case_done_batch "REQUEUE" "$REQUEUEABLE_ID_LIST"
+        else
+          echo "Nothing requeued; every requested case already exhausted its requeue budget"
+        fi
         requeued_existing=1
       fi
     fi
@@ -759,14 +782,17 @@ case "$ACTION" in
           type = excluded.type,
           source = excluded.source,
           status = CASE
+            WHEN COALESCE(cases.requeue_count,0) >= ${MAX_REQUEUES} THEN cases.status
             WHEN excluded.type IN ('image', 'video', 'font', 'archive') THEN 'skipped'
             ELSE 'pending'
           END,
           assigned_agent = NULL,
-          consumed_at = NULL
+          consumed_at = NULL,
+          requeue_count = COALESCE(cases.requeue_count,0) + 1
         WHERE cases.type = 'unknown'
           AND excluded.type != 'unknown'
-          AND cases.status IN ('pending', 'processing', 'error');
+          AND cases.status IN ('pending', 'processing', 'error')
+          AND COALESCE(cases.requeue_count,0) < ${MAX_REQUEUES};
         SELECT changes();" )
 
       COUNT=$((COUNT + RESULT))

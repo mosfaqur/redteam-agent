@@ -331,44 +331,86 @@ def _as_int_set(values) -> set[int]:
     return out
 
 
-def profile_matches(prof: dict, host: str, port: int, base_url: str, detected_ports: set[int] | None = None) -> bool:
-    match = prof.get("match") or {}
-    if match.get("always"):
-        return False  # generic catch-all handled separately
+def _profile_match_score(prof: dict, host: str, port: int, base_url: str, detected_ports: set[int] | None = None) -> dict:
+    """Score a profile against the target and explain the verdict.
 
+    Port overlap alone must never resolve a profile: any web app that happens
+    to expose 80 + 3306 + 5432 otherwise looks like Metasploitable. A
+    port-only verdict now requires a genuinely distinctive signature
+    (``match.min_ports_only_overlap``, default 5, never below
+    ``match.min_port_overlap``).
+    """
+    match = prof.get("match") or {}
     detected_ports = detected_ports or set()
     ports = _as_int_set(match.get("ports"))
+    overlap = sorted(ports & detected_ports)
+
     min_overlap = 0
     try:
         min_overlap = int(match.get("min_port_overlap", 0) or 0)
     except (TypeError, ValueError):
         min_overlap = 0
+    min_score = 50
+    try:
+        min_score = int(match.get("min_score", 50) or 50)
+    except (TypeError, ValueError):
+        min_score = 50
+    min_ports_only = 5
+    try:
+        min_ports_only = int(match.get("min_ports_only_overlap", 5) or 5)
+    except (TypeError, ValueError):
+        min_ports_only = 5
+    min_ports_only = max(min_ports_only, min_overlap)
 
-    # Network profiles can match on a distinctive port signature alone (host is
-    # usually a bare IP that carries no fingerprint).
-    if min_overlap > 0 and ports:
-        if len(ports & detected_ports) >= min_overlap:
-            return True
-
+    score = 0
     host_hit = host_matches(host, match.get("hosts") or [])
-    port_hit = (not ports) or (port in ports) or bool(ports & detected_ports)
+    if host_hit:
+        score += 50
+    if ports and port in ports:
+        score += 15
+    if overlap:
+        score += min(25, 5 * len(overlap))
 
-    if host_hit and port_hit:
-        return True
+    probe_hits: list[str] = []
+    for probe in match.get("path_probes") or []:
+        if not isinstance(probe, dict):
+            continue
+        path = str(probe.get("path", ""))
+        needle = str(probe.get("contains", ""))
+        if not path or not needle or not base_url:
+            continue
+        ok, body, _err = http_get(join_url(base_url, path))
+        if ok and needle.lower() in body.lower():
+            probe_hits.append(path)
+    if probe_hits:
+        score += min(80, 60 + 20 * (len(probe_hits) - 1))
 
-    probes = match.get("path_probes") or []
-    if probes and base_url:
-        for probe in probes:
-            if not isinstance(probe, dict):
-                continue
-            url = join_url(base_url, str(probe.get("path", "")))
-            needle = str(probe.get("contains", ""))
-            if not needle:
-                continue
-            ok, body, _err = http_get(url)
-            if ok and needle.lower() in body.lower():
-                return True
-    return False
+    identity_evidence = host_hit or bool(probe_hits)
+    if identity_evidence:
+        rule = "identity" if probe_hits else "host"
+        matched = score >= min_score
+    else:
+        rule = "port_signature"
+        matched = bool(overlap) and len(overlap) >= min_ports_only
+
+    return {
+        "matched": matched,
+        "score": score,
+        "min_score": min_score,
+        "rule": rule if matched else "no_match",
+        "host_hit": host_hit,
+        "port_hit": bool(ports and port in ports),
+        "port_overlap": overlap,
+        "min_ports_only_overlap": min_ports_only,
+        "probe_hits": probe_hits,
+    }
+
+
+def profile_matches(prof: dict, host: str, port: int, base_url: str, detected_ports: set[int] | None = None) -> bool:
+    match = prof.get("match") or {}
+    if match.get("always"):
+        return False  # generic catch-all handled separately
+    return bool(_profile_match_score(prof, host, port, base_url, detected_ports)["matched"])
 
 
 def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str | None = None) -> int:
@@ -380,6 +422,7 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
     profiles = load_profiles()
 
     chosen = None
+    match_evidence: dict = {}
     if profile_override:
         for prof in profiles:
             if prof.get("id") == profile_override:
@@ -388,20 +431,24 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
         if chosen is None:
             print(f"LAB_PROFILE=none LAB_KIND=unknown NOTE=unknown profile id {profile_override}")
             return 1
+        match_evidence = {"rule": "explicit", "score": None, "min_score": None}
 
     if chosen is None:
         detected = detected_service_ports(eng_dir)
         specific = [p for p in profiles if not (p.get("match") or {}).get("always")]
         specific.sort(key=lambda p: int(p.get("priority", 0)), reverse=True)
         for prof in specific:
-            if profile_matches(prof, host, port, base_url, detected):
+            evidence = _profile_match_score(prof, host, port, base_url, detected)
+            if evidence["matched"]:
                 chosen = prof
+                match_evidence = evidence
                 break
 
     if chosen is None:
         for prof in profiles:
             if prof.get("id") == "generic":
                 chosen = prof
+                match_evidence = {"rule": "fallback", "score": 0, "min_score": None}
                 break
     if chosen is None:
         print("LAB_PROFILE=none LAB_KIND=unknown")
@@ -419,8 +466,13 @@ def cmd_detect(eng_dir: Path, target_override: str | None, profile_override: str
     resolved["resolved_from"] = chosen.get("_path", "")
     resolved.pop("_path", None)
     resolved["target"] = target
+    resolved["match_evidence"] = match_evidence
     (eng_dir / "lab-profile.json").write_text(json.dumps(resolved, indent=2) + "\n", encoding="utf-8")
-    print(f"LAB_PROFILE={resolved.get('id')} LAB_KIND={resolved.get('kind')} TARGET={target}")
+    print(
+        f"LAB_PROFILE={resolved.get('id')} LAB_KIND={resolved.get('kind')} TARGET={target} "
+        f"LAB_MATCH_RULE={match_evidence.get('rule', 'unknown')} "
+        f"LAB_MATCH_SCORE={match_evidence.get('score')}"
+    )
     return 0
 
 

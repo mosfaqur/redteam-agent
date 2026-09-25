@@ -24,7 +24,9 @@ cases) and process every case ID. Each case has `host`, `port`, `proto`, `servic
 
 network-service-testing (primary), smb-netbios, database-services, remote-access-services,
 mail-dns-services, ldap-kerberos, snmp-ftp-nfs, port-scanning, tls-ssl-testing,
-kubernetes-testing, container-testing, cloud-testing, ci-cd-security.
+kubernetes-testing, container-testing, cloud-testing, ci-cd-security,
+voip-sip-testing, embedded-device-testing, fastcgi-service-testing,
+custom-protocol-reverse-engineering (owned follow-up skills: classify first, then hand off)
 
 === METHODOLOGY (per service case) ===
 
@@ -95,6 +97,9 @@ ERROR                       case=NN  (irrecoverable)
    to `$DIR/auth.json` immediately (canonical schema) and include it in the Credentials intel table.
 7. FINDING IDs: never hand-allocate. Write `## [FINDING-ID] Title` then append via
    `./scripts/append_finding.sh "$DIR" network-analyst <body-file>`.
+   Every finding body MUST include a `- **Case**: <case id from your ### Case Outcomes block>` line
+   (use `n/a — <short reason>` only when the issue did not come from a queue case). Report generation
+   is blocked by `check_finding_case_linkage.sh` until every finding traces to a cases.db id.
 8. CHRONOLOGICAL LOGGING: append one start entry and one summary entry via
    `./scripts/append_log_entry.sh "$DIR" network-analyst "<phase>" "<detail>" "<target>"`.
 9. If a batch case is not a real service (already closed/filtered), mark it `DONE STAGE=clean`
