@@ -79,7 +79,7 @@ Inspect any NOTIFY, routing decision, presence data, `Reason`, `Call-Info`, iden
 
 ### 5. Review RTP, SRTP, and DTMF Exposure
 
-From one controlled lab call, inspect the SDP for the advertised audio port, `rtpmap`, `crypto`, and DTMF payloads. Make one bounded UDP port pass and one short capture; do not flood or keep a call open.
+From one controlled lab call, inspect the SDP for the advertised audio port, `rtpmap`, `crypto`, and DTMF payloads. The SDP body lives in the peer's session description (the 200 OK or 18x answer), not in the body-less INVITE you send; grep the saved response file for it. Make one bounded UDP port pass and one short capture; do not flood or keep a call open.
 
 ```bash
 timeout 90s run_tool nmap -sU -sV -p 10000-10100 --host-timeout 60s --max-retries 1 HOST > "$DIR/scans/sip_rtp_ports.txt" 2>&1 # advertised media

@@ -89,11 +89,11 @@ printf '%s\n' 'direction|message|fields|precondition|next_state' 'C->S|OBSERVED|
 
 ### 5. Discover Encoding and Cryptography
 
-Compare repeated fields across frames. Test only evidence-guided XOR, ROT-like, short repeating-key, and base64-wrapped transformations. For length-prefixed encryption, record whether the prefix is plaintext and whether it is covered by the cipher. Check for RC4 or AES with static handshake keys/IVs, and extract keys/IVs from captured traffic or local client artifacts only—never guess keys or brute force.
+Compare repeated fields across frames. Run the analysis against the first response captured in step 1 (`first-response.bin`), or substitute `client-handshake.pcap` when a client handshake was captured. Test only evidence-guided XOR, ROT-like, short repeating-key, and base64-wrapped transformations. For length-prefixed encryption, record whether the prefix is plaintext and whether it is covered by the cipher. Check for RC4 or AES with static handshake keys/IVs, and extract keys/IVs from captured traffic or local client artifacts only—never guess keys or brute force.
 
 ```bash
-python3 "$DIR/tools/frame_parser.py" "$DIR/scans/handshake.bin" > "$DIR/scans/crypto-input.txt" 2>/dev/null || true
-python3 - "$DIR/scans/handshake.bin" > "$DIR/scans/encoding-candidates.txt" <<'PY'
+python3 "$DIR/tools/frame_parser.py" "$DIR/scans/first-response.bin" > "$DIR/scans/crypto-input.txt" 2>/dev/null || true
+python3 - "$DIR/scans/first-response.bin" > "$DIR/scans/encoding-candidates.txt" <<'PY'
 from pathlib import Path
 import sys
 raw = Path(sys.argv[1]).read_bytes()
@@ -104,7 +104,7 @@ for width in (1, 2, 4, 8, 16):
 for shift in (1, 2, 3, 4, 13, 26):
     print("rot", shift, bytes((value - shift) % 256 for value in raw[:16]).hex())
 PY
-if [ -s "$DIR/scans/handshake.b64" ]; then base64 -d "$DIR/scans/handshake.b64" > "$DIR/scans/handshake-decoded.bin"; fi; openssl list -cipher-algorithms > "$DIR/scans/openssl-ciphers.txt" 2>/dev/null || true; xxd -g 1 "$DIR/scans/handshake.bin" > "$DIR/scans/handshake.hexdump"; grep -nEi 'key|iv|nonce|rc4|aes|cipher|encrypt|decrypt' "$DIR/scans/client-fields.txt" > "$DIR/scans/crypto-markers.txt" 2>/dev/null || true
+if [ -s "$DIR/scans/first-response.b64" ]; then base64 -d "$DIR/scans/first-response.b64" > "$DIR/scans/first-response-decoded.bin"; fi; openssl list -cipher-algorithms > "$DIR/scans/openssl-ciphers.txt" 2>/dev/null || true; grep -nEi 'key|iv|nonce|rc4|aes|cipher|encrypt|decrypt' "$DIR/scans/client-fields.txt" > "$DIR/scans/crypto-markers.txt" 2>/dev/null || true
 ```
 
 ### 6. Test Parser Attack Hypotheses
