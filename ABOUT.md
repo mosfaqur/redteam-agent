@@ -12,7 +12,7 @@ Historically, security automation oscillated between two extremes:
 1. **Rigid DAST scanners & exploit scripts**: High speed and deterministic, but incapable of contextual reasoning, business logic deduction, novel payload adaptation, or multi-step attack chaining.
 2. **Naive conversational AI wrappers**: Prone to context exhaustion, hallucinations, uncoordinated tool thrashing, lack of session persistence, and catastrophic loss of attack surface visibility.
 
-RedTeam Agent re-engineers this paradigm from first principles. It transforms developer AI command-line assistants—including **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, and **[Codex](https://github.com/openai/codex)**—into a self-directed, multi-agent cyber operations team. By combining a deterministic, token-frugal state machine with 9 specialized AI personas, containerized Kali Linux security tooling, and 38 offensive methodology skills, RedTeam Agent executes thorough, reproducible security simulations with minimal human intervention.
+RedTeam Agent re-engineers this paradigm from first principles. It transforms developer AI command-line assistants—including **[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, and **[Codex](https://github.com/openai/codex)**—into a self-directed, multi-agent cyber operations team. By combining a deterministic, token-frugal state machine with 9 specialized AI personas, containerized Kali Linux security tooling, and 55 offensive methodology skills, RedTeam Agent executes thorough, reproducible security simulations with minimal human intervention.
 
 ---
 

@@ -17,7 +17,7 @@
     <img src="https://img.shields.io/badge/platform-macOS%20|%20Linux-blue" alt="Platform">
     <img src="https://img.shields.io/badge/runtimes-Docker%20|%20Bare--metal%20Kali-blue" alt="Runtimes">
     <img src="https://img.shields.io/badge/agents-9%20specialized-orange" alt="Agents">
-    <img src="https://img.shields.io/badge/skills-38%20attack%20methodologies-red" alt="Skills">
+    <img src="https://img.shields.io/badge/skills-55%20attack%20methodologies-red" alt="Skills">
     <img src="https://img.shields.io/badge/references-79%20files-green" alt="References">
     <img src="https://img.shields.io/badge/labs-13%20profiles-purple" alt="Labs">
   </p>
@@ -29,7 +29,7 @@
 
 **RedTeam Agent** is an autonomous offensive security framework that operates directly within developer AI command-line interfaces (**[OpenCode](https://opencode.ai)**, **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)**, and **[Codex](https://github.com/openai/codex)**). It transforms any workspace into a full-scale cyber operations command center for authorized penetration testing, adversary simulation, and CTF challenges.
 
-By decoupling execution state from LLM conversational memory, RedTeam Agent pairs **9 specialized AI agent roles** with a streaming **SQLite case queue**, **containerized or bare-metal Kali Linux security tooling**, **38 offensive methodology skills**, and **79 curated security references**. It comprehensively addresses both **modern web applications** (APIs, GraphQL, SPAs, WebSockets) and **network infrastructure services** (Active Directory, Kerberos, SMB, databases, remote management).
+By decoupling execution state from LLM conversational memory, RedTeam Agent pairs **9 specialized AI agent roles** with a streaming **SQLite case queue**, **containerized or bare-metal Kali Linux security tooling**, **55 offensive methodology skills**, and **79 curated security references**. It comprehensively addresses both **modern web applications** (APIs, GraphQL, SPAs, WebSockets) and **network infrastructure services** (Active Directory, Kerberos, SMB, databases, remote management), and extends into **host post-exploitation** (Linux/Windows privilege escalation, lateral movement), **cloud & container platforms** (Kubernetes, Docker, AWS/Azure/GCP), and **CI/CD pipelines**.
 
 ### Technical Documentation
 * [About & Philosophy](ABOUT.md) — Motivation, design principles, and comparison matrix
@@ -264,12 +264,14 @@ Producers                               SQLite Queue (`cases.db`)               
 
 ## Attack Methodology Skills & References
 
-### 38 Offensive Skills ([`agent/skills/`](agent/skills/))
-* **Injection**: SQL Injection, Command Injection, SSTI, XXE, GraphQL Injection.
-* **Authentication & Identity**: Auth Bypass, JWT Tampering, User Enumeration, IDOR, Session Misconfiguration.
-* **Client-Side & Web**: Stored/Reflected/DOM XSS, CSRF, CORS Misconfiguration, Open Redirect, WebSockets.
+### 55 Offensive Skills ([`agent/skills/`](agent/skills/))
+* **Injection**: SQL Injection, NoSQL Injection, Command Injection, SSTI, XXE, GraphQL Injection, Prototype Pollution.
+* **Authentication & Identity**: Auth Bypass, JWT Tampering, OAuth/OIDC/SAML, MFA Bypass, User Enumeration, IDOR, Session Misconfiguration, Credential Attacks.
+* **Client-Side & Web**: Stored/Reflected/DOM XSS, CSRF, CORS Misconfiguration, Open Redirect, WebSockets, Web Cache Poisoning & Deception, Subdomain Takeover, Mass Assignment.
 * **Architecture & Transport**: SSRF, HTTP Request Smuggling, Deserialization, Race Conditions, Business Logic Testing, File Inclusion (LFI/RFI), File Upload Abuse.
-* **Infrastructure & Services**: Active Directory & Kerberos (`ldap-kerberos`), SMB/RPC (`smb-netbios`), Database Services (`database-services`), Remote Access (`remote-access-services`), Mail/DNS (`mail-dns-services`), SNMP/FTP/NFS (`snmp-ftp-nfs`).
+* **Infrastructure & Services**: Active Directory & Kerberos (`ldap-kerberos`), SMB/RPC (`smb-netbios`), Database Services (`database-services`), Remote Access (`remote-access-services`), Mail/DNS (`mail-dns-services`), SNMP/FTP/NFS (`snmp-ftp-nfs`), TLS/SSL (`tls-ssl-testing`).
+* **Host Post-Exploitation**: Linux Privilege Escalation, Windows Privilege Escalation, Lateral Movement & Pivoting, Post-Exploitation Triage.
+* **Cloud, Containers & Supply Chain**: Kubernetes, Containers & Registries, Cloud (AWS/Azure/GCP), CI/CD Pipelines.
 
 ### 79 Security References ([`agent/references/`](agent/references/))
 * **OWASP Top 10 (2025 Edition)** & **OWASP API Security Top 10 (2023)**.

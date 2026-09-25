@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 7 dedicated skills located in [`agent/skills/`](../agent/skills/):
+The `network-analyst` subagent operates according to 12 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
@@ -146,6 +146,28 @@ General methodology orchestrator. Defines port-to-service classification, safe t
 ### 7. `snmp-ftp-nfs`
 * **Protocols**: SNMP (UDP 161), FTP (21), NFS (2049).
 * **Techniques**: Public/private SNMP community string brute-forcing (MIB enumeration), Anonymous FTP read/write checks, and NFS share mounting with `no_root_squash` analysis.
+
+### 8. `tls-ssl-testing`
+* **Protocols**: TLS/SSL on any service port (443, 8443, 636, 993, 9443, and non-standard).
+* **Techniques**: Protocol downgrade (SSLv3/TLS 1.0–1.1), weak cipher and key-exchange suites, expired/self-signed/SAN-mismatched certificates, incomplete chains, weak renegotiation, missing OCSP stapling, and HSTS/security-header coverage.
+
+### 9. `kubernetes-testing`
+* **Ports**: Kubernetes API (6443), etcd (2379–2380), kubelet (10250/10255), dashboard (8001), NodePort range (30000–32767).
+* **Techniques**: Anonymous API auth, `kubectl auth can-i` RBAC self-checks, unauthenticated etcd reads, kubelet read-only and log endpoints, dashboard exposure, and pod/container escape preconditions (privileged, host mounts, host namespaces).
+
+### 10. `container-testing`
+* **Ports**: Docker Remote API (2375/2376), Swarm (2377/7946), registries (5000/5001).
+* **Techniques**: Unauthenticated Docker API enumeration and execution paths, exposed `docker.sock`, container escape classes (privileged, cgroup `release_agent`, capabilities), anonymous registry push/pull, Dockerfile/build-context secret leakage, and runtime CVEs (runc, containerd).
+
+### 11. `cloud-testing`
+* **Services**: AWS, Azure, and GCP instance metadata, object storage, identity and secret management.
+* **Techniques**: IMDS reachability (including via SSRF), IMDSv2 enforcement, over-permissive instance roles, publicly listable buckets/containers/snapshots, managed identity and Cognito misconfiguration, and read-only CLI enumeration. Resource creation/deletion is never performed.
+
+### 12. `ci-cd-security`
+* **Ports**: Jenkins (8080), GoCD and registries (5000), exposed CI configuration.
+* **Techniques**: Unauthenticated Jenkins/script console/CLI access, GitHub Actions `pull_request_target` and self-hosted runner exposure, Actions cache poisoning, GitLab CI variable leakage, secrets in repository history, dependency confusion, and artifact poisoning.
+
+All twelve skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
 
 ---
 

@@ -47,7 +47,7 @@ The system comprises five core subsystems:
 1. **Operator Engine**: The primary decision loop driving phase progression and delegating work.
 2. **Specialized Subagent Pool**: 8 task-specific worker personas with isolated toolsets.
 3. **Streaming Case Pipeline**: SQLite-backed case queue with multi-source ingestion and atomic batch dispatch.
-4. **Methodology & Reference Library**: 38 offensive attack skills and 79 reference manuals.
+4. **Methodology & Reference Library**: 55 offensive attack skills and 79 reference manuals.
 5. **Lab Profile & Closure Gate**: Declarative target fingerprinting and objective verification engine.
 
 ---
@@ -215,7 +215,7 @@ Rather than imposing artificial phase walls, cases advance individually through 
 ```
 
 1. **`recon-specialist`**: Performs network and web discovery. Re-evaluates target surfaces whenever valid credentials are saved to `auth.json`.
-2. **`network-analyst`**: Evaluates non-HTTP network infrastructure. Follows dedicated methodology skills for SMB, Active Directory, databases, and remote access.
+2. **`network-analyst`**: Evaluates non-HTTP network infrastructure. Follows dedicated methodology skills for SMB, Active Directory, databases, remote access, TLS, Kubernetes, containers, cloud, and CI/CD.
 3. **`source-analyzer`**: De-obfuscates and analyzes client-side assets to identify unlinked endpoints, deprecated parameters, and hardcoded API tokens.
 4. **`vulnerability-analyst`**: Acts as a rapid gatekeeper. Limits analysis to 1–2 lightweight probes per vulnerability class to prevent rate-limiting and scanner bans.
 5. **`exploit-developer`**: Constructive attacker. Takes confirmed vulnerabilities, verifies full execution, escalates privileges, and interfaces with Metasploit RPC via stdio MCP.

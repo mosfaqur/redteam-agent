@@ -40,6 +40,14 @@ The following attack skills are already loaded in your context as instructions. 
 - info-disclosure-testing -- Information disclosure
 - business-logic-testing -- Workflow bypass, price manipulation, state abuse
 - user-enumeration -- Login/register/reset endpoints that leak user existence
+- nosql-injection -- MongoDB/Redis operator injection and auth bypass
+- prototype-pollution -- Node.js `__proto__` / `constructor.prototype` pollution
+- mass-assignment -- Over-posting unexpected fields (role, price, isAdmin)
+- web-cache-attacks -- Cache poisoning via unkeyed headers/params, cache deception
+- subdomain-takeover -- Dangling DNS records and unclaimed SaaS resources
+- oauth-oidc-testing -- OAuth 2.0 / OIDC / SAML redirect, token, and signature flaws
+- mfa-bypass-testing -- Second-factor skip, OTP replay, recovery-code abuse
+- credential-attacks -- Default credentials, spraying, lockout policy, hash cracking
 
 For vulnerability classification guidance, check `references/INDEX.md` (already in your context) to find the relevant checklist, then use the Read tool to load the specific file (e.g., `references/vuln-checklists/A05-injection.md`).
 

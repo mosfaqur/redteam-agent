@@ -23,7 +23,8 @@ cases) and process every case ID. Each case has `host`, `port`, `proto`, `servic
 === SKILLS ===
 
 network-service-testing (primary), smb-netbios, database-services, remote-access-services,
-mail-dns-services, ldap-kerberos, snmp-ftp-nfs, port-scanning.
+mail-dns-services, ldap-kerberos, snmp-ftp-nfs, port-scanning, tls-ssl-testing,
+kubernetes-testing, container-testing, cloud-testing, ci-cd-security.
 
 === METHODOLOGY (per service case) ===
 
