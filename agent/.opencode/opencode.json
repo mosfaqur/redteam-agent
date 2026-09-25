@@ -65,6 +65,10 @@
     "skills/embedded-device-testing/SKILL.md",
     "skills/fastcgi-service-testing/SKILL.md",
     "skills/waf-evasion-testing/SKILL.md",
+    "skills/binary-artifact-analysis/SKILL.md",
+    "skills/web-admin-console-testing/SKILL.md",
+    "skills/sandboxed-code-execution/SKILL.md",
+    "skills/resource-exhaustion-testing/SKILL.md",
     "references/INDEX.md"
   ],
   "plugin": [

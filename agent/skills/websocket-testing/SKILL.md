@@ -90,6 +90,20 @@ origin: RedteamOpencode
 - [ ] Test if connection receives other users' events
 - [ ] Check for verbose error messages over WebSocket
 
+### 9. Socket.IO Polling Transport
+
+When a full WebSocket client fails or a proxy rewrites the upgrade, the raw polling transport still works and is enough to emit events without a client library:
+
+```
+GET  /socket.io/?EIO=4&transport=polling              -> {"sid":...}
+POST /socket.io/?EIO=4&transport=polling&sid=<sid>    body: 40
+POST /socket.io/?EIO=4&transport=polling&sid=<sid>    body: 42["<event>","<data>"]
+```
+
+- [ ] Confirm the endpoint advertises Socket.IO (`EIO=4` handshake returns a `sid`)
+- [ ] Emit a named event with a `42["event",...]` payload and verify the server-side effect
+- [ ] Test whether event handlers validate the same auth as the WS upgrade (polling often bypasses it)
+
 ## What to Record
 
 - WebSocket endpoint URL and protocol

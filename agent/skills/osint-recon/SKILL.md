@@ -14,7 +14,7 @@ origin: RedteamOpencode
 ## Tools
 
 searchsploit, h8mail, theHarvester, spiderfoot, amass, whois, dig,
-waybackurls, curl, jq
+waybackurls, curl, jq, exiftool, steghide, zsteg, binwalk, strings
 
 ## Methodology
 
@@ -109,6 +109,28 @@ From intel.md People & Organizations:
     # Hunter.io — email pattern discovery (requires API key)
     curl -s "https://api.hunter.io/v2/domain-search?domain=<domain>&api_key=$HUNTER_API_KEY" \
       | jq '.data.emails[] | {value, type, confidence}'
+
+### 5. Image Metadata & Steganography
+
+For images and documents surfaced during recon or leaked through the target:
+
+    # EXIF / metadata extraction from an image
+    exiftool image.jpg > scans/osint_exif.txt
+
+    # Extract visible EXIF fields without exiftool
+    python3 -c 'from PIL import Image; from PIL.ExifTags import TAGS; \
+    import sys; im = Image.open(sys.argv[1]); \
+    print({TAGS.get(k, k): v for k, v in im._getexif().items()} if im._getexif() else {})' image.jpg
+
+    # Embedded strings / hidden data (steghide, zsteg, binwalk)
+    strings image.png | grep -iE 'flag|pass|key|secret|gps|exif' 
+    steghide extract -sf image.jpg -p '' 
+    zsteg image.png
+    binwalk image.jpg > scans/osint_binwalk.txt
+
+- [ ] Record GPS coordinates, camera serial, device, and timestamps as location/identity intel
+- [ ] Treat GPS/lat-lon as a geo-stalking lead only; confirm against another source before acting
+- [ ] Check images for steganographic payloads when a challenge or target hints at hidden data
 
 ## Priority Order
 

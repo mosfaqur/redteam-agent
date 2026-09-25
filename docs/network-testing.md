@@ -118,7 +118,7 @@ When initiating an engagement with an IP address, CIDR block, or range, RedTeam 
 
 ## 5. Service Attack Methodology Skills
 
-The `network-analyst` subagent operates according to 16 dedicated skills located in [`agent/skills/`](../agent/skills/):
+The `network-analyst` subagent operates according to 17 dedicated skills located in [`agent/skills/`](../agent/skills/):
 
 ### 1. `network-service-testing`
 General methodology orchestrator. Defines port-to-service classification, safe triage protocols, and stage transition criteria.
@@ -183,7 +183,11 @@ General methodology orchestrator. Defines port-to-service classification, safe t
 * **Ports**: Any TCP/UDP service that no known-protocol script identifies.
 * **Techniques**: Banner and hexdump capture, framing classification (line/length-prefixed/TLV/fixed-header), bounded structural field mapping, a single read-only request per hypothesis, and byte-differential confirmation. Owns the unknown-service cases that `network-service-testing` classifies and hands off.
 
-All sixteen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
+### 17. `web-admin-console-testing`
+* **Ports**: Tomcat manager, phpMyAdmin, Druid, Grafana, Kibana, and generic admin panels on common management ports (8080, 8443, 8888, 3000, 5601, 9090).
+* **Techniques**: Console fingerprinting and version mapping, a bounded default-credential check (static list, no spray), console-specific unauthenticated disclosure (monitor/status/datasource/query viewers), and broken function-level authorization on admin methods. Promotion is confirm-only; exploitation hands to `exploit-developer`.
+
+All seventeen skills enforce a confirm-only rule during enumeration: exploitation and resource mutation are handed to `exploit-developer` at `stage=vuln_confirmed`.
 
 ---
 

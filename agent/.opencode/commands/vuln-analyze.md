@@ -49,6 +49,9 @@ The following attack skills are already loaded in your context as instructions. 
 - mfa-bypass-testing -- Second-factor skip, OTP replay, recovery-code abuse
 - credential-attacks -- Default credentials, spraying, lockout policy, hash cracking
 - waf-evasion-testing -- WAF/filter differentials, host-header vhost discovery, static-suffix route access, auth-filter bypass
+- web-admin-console-testing -- Exposed Tomcat/phpMyAdmin/Druid/Grafana/admin consoles: default credentials, unauth disclosure, broken function authorization
+- sandboxed-code-execution -- Sandboxed eval/vm/notevil sinks: guard probing, bounded escape, timeout-with-impact
+- resource-exhaustion-testing -- YAML alias bombs, regex ReDoS, XML entity expansion, oversized payloads (bounded, single-shot)
 
 For vulnerability classification guidance, check `references/INDEX.md` (already in your context) to find the relevant checklist, then use the Read tool to load the specific file (e.g., `references/vuln-checklists/A05-injection.md`).
 
